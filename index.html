@@ -21,8 +21,27 @@
                 </div>
                 
                 <div class="input-group">
+                    <label for="processingMode">Processing Mode:</label>
+                    <select id="processingMode">
+                        <option value="sentence">Sentence by Sentence</option>
+                        <option value="batch">Batch Processing</option>
+                    </select>
+                </div>
+                
+                <div class="input-group" id="batchSizeGroup">
                     <label for="batchSize">Batch Size:</label>
                     <input type="number" id="batchSize" value="10" min="1" max="100">
+                </div>
+                
+                <div class="input-group" id="batchConfigGroup" style="display: none;">
+                    <label for="gcsInputBucket">GCS Input Bucket:</label>
+                    <input type="text" id="gcsInputBucket" placeholder="gs://my-bucket/input/">
+                    
+                    <label for="gcsOutputBucket">GCS Output Bucket:</label>
+                    <input type="text" id="gcsOutputBucket" placeholder="gs://my-bucket/output/">
+                    
+                    <label for="projectId">Project ID:</label>
+                    <input type="text" id="projectId" placeholder="your-project-id">
                 </div>
 
                 <div class="button-group">

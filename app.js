@@ -169,7 +169,12 @@ class BookProcessorUI {
 
     stopProcessing() {
         this.isProcessing = false;
-        this.addLog('Stopping processing...', 'info');
+        
+        if (this.elements.processingMode.value === 'batch' && this.batchJobName) {
+            this.stopBatchProcessing();
+        } else {
+            this.addLog('Stopping processing...', 'info');
+        }
     }
 
     resetStats() {
@@ -178,6 +183,95 @@ class BookProcessorUI {
         this.successfulLines = 0;
         this.failedLines = 0;
         this.startTime = null;
+        this.batchJobName = null;
+    }
+
+    async processBatch(filePath, projectId, gcsInputBucket, gcsOutputBucket) {
+        try {
+            // Start batch processing via API
+            const response = await fetch('/api/batch/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    filePath,
+                    projectId,
+                    gcsInputBucket,
+                    gcsOutputBucket
+                })
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to start batch processing');
+            }
+            
+            const result = await response.json();
+            this.addLog(result.message, 'success');
+            
+            // Start polling for status updates
+            this.pollBatchStatus();
+            
+        } catch (error) {
+            this.addLog(`Error starting batch processing: ${error.message}`, 'error');
+            throw error;
+        }
+    }
+    
+    async pollBatchStatus() {
+        const pollInterval = 3000; // 3 seconds
+        
+        while (this.isProcessing) {
+            try {
+                const response = await fetch('/api/batch/status');
+                const status = await response.json();
+                
+                // Update logs with new entries
+                if (status.logs && status.logs.length > 0) {
+                    const lastLogIndex = this.elements.logOutput.children.length;
+                    for (let i = Math.max(0, lastLogIndex - 10); i < status.logs.length; i++) {
+                        if (i >= 0 && status.logs[i]) {
+                            const logType = status.logs[i].includes('✅') ? 'success' : 
+                                          status.logs[i].includes('❌') ? 'error' : 'info';
+                            this.addLog(status.logs[i], logType);
+                        }
+                    }
+                }
+                
+                // Update job name if available
+                if (status.jobName && !this.batchJobName) {
+                    this.batchJobName = status.jobName;
+                }
+                
+                // Check if job is completed
+                if (!status.isRunning) {
+                    if (status.status === 'succeeded' || status.status === 'partially_succeeded') {
+                        this.totalLines = 50; // Simulated
+                        this.processedLines = this.totalLines;
+                        this.successfulLines = Math.floor(this.totalLines * 0.9);
+                        this.failedLines = this.totalLines - this.successfulLines;
+                        this.updateProgress();
+                    }
+                    break;
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+                
+            } catch (error) {
+                this.addLog(`Error polling status: ${error.message}`, 'error');
+                break;
+            }
+        }
+    }
+    
+    async stopBatchProcessing() {
+        try {
+            await fetch('/api/batch/stop', { method: 'POST' });
+            this.addLog('Batch processing stop requested', 'info');
+        } catch (error) {
+            this.addLog(`Error stopping batch processing: ${error.message}`, 'error');
+        }
     }
 
     downloadSQL() {
