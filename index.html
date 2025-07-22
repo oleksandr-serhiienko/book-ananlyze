@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book Sentence Processor</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Book Sentence Processor</h1>
+            <p>Process and translate book sentences using AI</p>
+        </header>
+
+        <main>
+            <section class="controls">
+                <div class="input-group">
+                    <label for="textFile">Text File Path:</label>
+                    <input type="text" id="textFile" placeholder="Enter path to text file">
+                </div>
+                
+                <div class="input-group">
+                    <label for="batchSize">Batch Size:</label>
+                    <input type="number" id="batchSize" value="10" min="1" max="100">
+                </div>
+
+                <div class="button-group">
+                    <button id="startProcessing" class="btn-primary">Start Processing</button>
+                    <button id="stopProcessing" class="btn-secondary" disabled>Stop Processing</button>
+                    <button id="downloadSQL" class="btn-success" disabled>Download SQL</button>
+                </div>
+            </section>
+
+            <section class="status">
+                <div class="status-item">
+                    <span class="label">Status:</span>
+                    <span id="processingStatus" class="value">Ready</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Progress:</span>
+                    <span id="processingProgress" class="value">0/0</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Success Rate:</span>
+                    <span id="successRate" class="value">0%</span>
+                </div>
+            </section>
+
+            <section class="progress-section">
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill"></div>
+                </div>
+            </section>
+
+            <section class="logs">
+                <h2>Processing Logs</h2>
+                <div class="log-container">
+                    <div id="logOutput" class="log-output"></div>
+                </div>
+                <button id="clearLogs" class="btn-secondary">Clear Logs</button>
+            </section>
+
+            <section class="results">
+                <h2>Results Summary</h2>
+                <div class="results-grid">
+                    <div class="result-card">
+                        <h3>Total Lines</h3>
+                        <span id="totalLines" class="result-number">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Successful</h3>
+                        <span id="successfulLines" class="result-number success">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Failed</h3>
+                        <span id="failedLines" class="result-number error">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Processing Time</h3>
+                        <span id="processingTime" class="result-number">0s</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
