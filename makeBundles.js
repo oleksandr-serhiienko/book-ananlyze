@@ -4,7 +4,7 @@
  *  Vertex AI batch‑prediction bundles (one JSON per line).
  *
  *  Usage:
- *      node makeBundles.js input.txt gs://my‑bucket/bundles.jsonl
+ *      node makeBundles.js input.txt gs://vertex-batch-188935312243/bundles.jsonl
  *      # (or any local path instead of GCS for a dry run)
  */
 
