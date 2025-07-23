@@ -1,4 +1,4 @@
-const fs = require('fs');
+import fs from 'fs';
 
 class SQLGenerator {
     constructor() {
@@ -76,4 +76,4 @@ class SQLGenerator {
     }
 }
 
-module.exports = SQLGenerator;
+export default SQLGenerator;

@@ -1,5 +1,5 @@
-const { GoogleGenAI } = require('@google/genai');
-const fs = require('fs');
+import { GoogleGenAI } from '@google/genai';
+import fs from 'fs';
 
 class ModelClient {
     constructor(config) {
@@ -14,8 +14,16 @@ class ModelClient {
     }
 
     async getBatchTranslation(batchLines) {
-        const batchText = batchLines.map(line => line.original_text).join('\n');
-        const prompt = `de-en |${batchText}|`;
+        const numberedLines = batchLines.map((line, index) => 
+            `${index + 1}. ${line.original_text}`
+        ).join('\n');
+        
+        const prompt = `Translate the following German text to English. Return one JSON object per line in this exact format: {"original": "German text", "translated": "English text"}
+
+German text to translate:
+${numberedLines}
+
+Return ${batchLines.length} JSON objects, one per line, in the same order:`;
         
         try {
             const chat = this.ai.chats.create({
@@ -72,4 +80,4 @@ class ModelClient {
     }
 }
 
-module.exports = ModelClient;
+export default ModelClient;

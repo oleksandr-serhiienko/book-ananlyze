@@ -1,4 +1,4 @@
-const fs = require('fs');
+import fs from 'fs';
 
 class TextProcessor {
     extractChaptersAndLines(filePath) {
@@ -105,4 +105,4 @@ class TextProcessor {
     }
 }
 
-module.exports = TextProcessor;
+export default TextProcessor;

@@ -1,4 +1,4 @@
-module.exports = {
+export default {
     // Processing Configuration
     MAX_RETRIES_SENTENCE: 3,
     RETRY_DELAY_SECONDS_SENTENCE: 10000, // milliseconds
