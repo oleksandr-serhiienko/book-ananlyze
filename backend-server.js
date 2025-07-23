@@ -4,6 +4,14 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
+
+// Import CommonJS modules
+const require = createRequire(import.meta.url);
+const config = require('./config.js');
+const TextProcessor = require('./textProcessor.js');
+const ModelClient = require('./modelClient.js');
+const SQLGenerator = require('./sqlGenerator.js');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +28,7 @@ let processingState = {
     isRunning: false,
     logs: [],
     totalLines: 0,
+    totalChapters: 0,
     processedLines: 0,
     successfulLines: 0,
     failedLines: 0,
@@ -53,6 +62,7 @@ function resetProcessingState() {
         isRunning: false,
         logs: [],
         totalLines: 0,
+        totalChapters: 0,
         processedLines: 0,
         successfulLines: 0,
         failedLines: 0,
@@ -62,12 +72,26 @@ function resetProcessingState() {
     };
 }
 
+// Initialize AI processing components
+let textProcessor;
+let modelClient;
+let sqlGenerator;
+
+try {
+    textProcessor = new TextProcessor();
+    modelClient = new ModelClient(config);
+    sqlGenerator = new SQLGenerator();
+    addLog('AI processing components initialized successfully');
+} catch (error) {
+    addLog('Failed to initialize AI components', 'error', error);
+}
+
 // API Routes
 
 // Start sentence-by-sentence processing
 app.post('/api/process/start', async (req, res) => {
     try {
-        const { filePath, batchSize } = req.body;
+        const { filePath, aiConfig } = req.body;
 
         if (!filePath) {
             const error = new Error('File path is required');
@@ -104,15 +128,73 @@ app.post('/api/process/start', async (req, res) => {
         processingState.status = 'processing';
 
         addLog(`Starting sentence processing: ${filePath}`);
-        addLog(`Batch size: ${batchSize || 10}`);
+        
+        // Update AI configuration if provided
+        if (aiConfig) {
+            addLog(`Using custom AI config - Project: ${aiConfig.projectId}, Location: ${aiConfig.location}`);
+            addLog(`Model endpoint: ${aiConfig.modelEndpoint}`);
+            
+            // Create new ModelClient with custom config
+            const customConfig = {
+                ...config,
+                PROJECT_ID: aiConfig.projectId || config.PROJECT_ID,
+                LOCATION: aiConfig.location || config.LOCATION,
+                MODEL_ENDPOINT: aiConfig.modelEndpoint || config.MODEL_ENDPOINT
+            };
+            
+            try {
+                modelClient = new ModelClient(customConfig);
+                addLog('AI client updated with custom configuration');
+            } catch (error) {
+                addLog('Failed to update AI client with custom config, using default', 'error', error);
+            }
+        } else {
+            addLog('Using default AI configuration from config.js');
+        }
 
-        // Read and count lines with detailed error handling
+        // Read file and detect chapters
         let content;
-        let lines;
+        let chapters;
+        let totalLines;
         try {
             content = fs.readFileSync(filePath, 'utf8');
-            lines = content.split(/\r?\n/).filter(line => line.trim());
-            processingState.totalLines = lines.length;
+            const allLines = content.split(/\r?\n/).filter(line => line.trim());
+            
+            // Split into chapters using the same logic as makeBundles.js
+            const markerRegex = /^\[(CHAPTER|BOOK) MARKER]/i;
+            chapters = [];
+            let currentChapter = [];
+            
+            for (const line of allLines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue; // skip blanks
+                
+                if (markerRegex.test(trimmed)) {
+                    // New chapter found
+                    if (currentChapter.length) {
+                        chapters.push(currentChapter.join('\n'));
+                    }
+                    currentChapter = [];
+                } else {
+                    // Add line to current chapter (ensure trailing |)
+                    currentChapter.push(trimmed.endsWith('|') ? trimmed : trimmed + '|');
+                }
+            }
+            
+            // Don't forget the last chapter
+            if (currentChapter.length) {
+                chapters.push(currentChapter.join('\n'));
+            }
+            
+            // Count total lines across all chapters
+            totalLines = chapters.reduce((total, chapter) => total + chapter.split('\n').length, 0);
+            
+            processingState.totalLines = totalLines;
+            processingState.totalChapters = chapters.length;
+            
+            addLog(`Found ${chapters.length} chapters with ${totalLines} total lines`);
+            addLog(`Batch size automatically set to ${chapters.length} (one batch per chapter)`);
+            
         } catch (fileError) {
             addLog(`Failed to read file: ${filePath}`, 'error', fileError);
             processingState.isRunning = false;
@@ -130,12 +212,13 @@ app.post('/api/process/start', async (req, res) => {
         res.json({ 
             message: 'Processing started successfully',
             totalLines: processingState.totalLines,
+            totalChapters: processingState.totalChapters,
             filePath: filePath,
-            batchSize: batchSize || 10
+            batchSize: chapters.length
         });
 
-        // Start processing in background
-        processSentences(lines, batchSize || 10, filePath);
+        // Start processing in background (each batch = one chapter)
+        processChapters(chapters, filePath);
 
     } catch (error) {
         addLog('Unexpected error in /api/process/start', 'error', error);
@@ -232,6 +315,7 @@ app.get('/api/status', (req, res) => {
         status: processingState.status,
         logs: processingState.logs,
         totalLines: processingState.totalLines,
+        totalChapters: processingState.totalChapters,
         processedLines: processingState.processedLines,
         successfulLines: processingState.successfulLines,
         failedLines: processingState.failedLines,
@@ -264,60 +348,103 @@ app.get('/api/download/sql', (req, res) => {
 
 // Helper functions
 
-async function processSentences(lines, batchSize, filePath) {
-    const functionName = 'processSentences';
-    addLog(`Starting ${functionName} with ${lines.length} lines, batch size ${batchSize}`);
+async function processChapters(chapters, filePath) {
+    const functionName = 'processChapters';
+    addLog(`Starting ${functionName} with ${chapters.length} chapters using real AI processing`);
     
     try {
-        for (let i = 0; i < lines.length && processingState.isRunning; i += batchSize) {
+        // Initialize SQL generator for this session
+        sqlGenerator.initializeSchema();
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const errorLogFile = `sentence_processing_errors_${timestamp}.log`;
+        const successLogFile = `sentence_model_responses_raw_${timestamp}.txt`;
+        
+        // Initialize log files
+        fs.writeFileSync(errorLogFile, `Chapter Processing Error Log - Run: ${new Date().toString()}\n${"=".repeat(40)}\n`, 'utf8');
+        fs.writeFileSync(successLogFile, `# Raw Model Responses (Chapters) - Run: ${new Date().toString()}\n`, 'utf8');
+        
+        addLog(`Initialized log files: ${errorLogFile}, ${successLogFile}`);
+        
+        for (let i = 0; i < chapters.length && processingState.isRunning; i++) {
             try {
-                const batch = lines.slice(i, Math.min(i + batchSize, lines.length));
-                const batchNumber = Math.floor(i / batchSize) + 1;
-                const batchStart = i + 1;
-                const batchEnd = Math.min(i + batchSize, lines.length);
+                const chapter = chapters[i];
+                const chapterNumber = i + 1;
+                const chapterLines = chapter.split('\n').filter(line => line.trim());
                 
-                addLog(`Processing batch ${batchNumber} (lines ${batchStart}-${batchEnd}, ${batch.length} lines)`);
+                addLog(`Processing Chapter ${chapterNumber} (${chapterLines.length} lines) with Vertex AI`);
                 
-                // Add sample of lines being processed for debugging
-                addLog(`Sample lines in batch: ${batch.slice(0, 2).map((line, idx) => `Line ${batchStart + idx}: "${line.substring(0, 50)}..."`).join(', ')}`);
+                // Convert chapter lines to the format expected by your AI system
+                const lineDataArray = chapterLines.map((line, lineIndex) => ({
+                    chapter_id: chapterNumber,
+                    line_number: lineIndex + 1,
+                    original_text: line.endsWith('|') ? line.slice(0, -1).trim() : line.trim()
+                }));
                 
-                // Simulate processing time (replace with actual AI processing)
-                await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+                // Show sample lines
+                const sampleLines = lineDataArray.slice(0, 2).map(lineData => 
+                    `C${lineData.chapter_id}_L${lineData.line_number}: "${lineData.original_text.substring(0, 50)}..."`
+                );
+                addLog(`Sample lines: ${sampleLines.join(', ')}`);
                 
-                // Simulate results (replace with actual results)
-                const successes = Math.floor(batch.length * (0.8 + Math.random() * 0.2));
-                const failures = batch.length - successes;
+                // Process the chapter using your existing batch processing logic
+                const batchResults = await processBatchLinesWithAI(lineDataArray, chapterNumber, errorLogFile, successLogFile);
                 
-                processingState.successfulLines += successes;
-                processingState.failedLines += failures;
-                processingState.processedLines += batch.length;
+                // Update counters
+                let chapterSuccesses = 0;
+                let chapterFailures = 0;
                 
-                if (successes > 0) {
-                    addLog(`✓ Successfully processed ${successes} lines (batch ${batchNumber})`, 'success');
+                for (const result of batchResults) {
+                    if (result) {
+                        chapterSuccesses++;
+                        processingState.successfulLines++;
+                    } else {
+                        chapterFailures++;
+                        processingState.failedLines++;
+                    }
+                    processingState.processedLines++;
                 }
-                if (failures > 0) {
-                    addLog(`✗ Failed to process ${failures} lines (batch ${batchNumber})`, 'error');
-                    // Add details about which lines failed (simulated)
-                    const failedLineNumbers = Array.from({length: failures}, (_, idx) => batchStart + successes + idx);
-                    addLog(`  Failed line numbers: ${failedLineNumbers.join(', ')}`);
+                
+                if (chapterSuccesses > 0) {
+                    addLog(`✓ Chapter ${chapterNumber}: Successfully processed ${chapterSuccesses}/${chapterLines.length} lines`, 'success');
+                }
+                if (chapterFailures > 0) {
+                    addLog(`✗ Chapter ${chapterNumber}: Failed to process ${chapterFailures}/${chapterLines.length} lines`, 'error');
                 }
                 
-            } catch (batchError) {
-                const batchNumber = Math.floor(i / batchSize) + 1;
-                addLog(`Error processing batch ${batchNumber}`, 'error', batchError);
-                processingState.failedLines += Math.min(batchSize, lines.length - i);
-                processingState.processedLines += Math.min(batchSize, lines.length - i);
+                // Save progress periodically
+                if (chapterNumber % 2 === 0 || chapterNumber === chapters.length) {
+                    const sqlFile = `book_sentences_progress_${timestamp}.sql`;
+                    sqlGenerator.saveToFile(sqlFile);
+                    addLog(`Progress saved to ${sqlFile} after Chapter ${chapterNumber}`);
+                }
+                
+                // Add delay between chapters to avoid rate limiting
+                if (i + 1 < chapters.length && processingState.isRunning) {
+                    addLog(`Pausing for ${config.RETRY_DELAY_SECONDS_SENTENCE / 2}ms before next chapter...`);
+                    await new Promise(resolve => setTimeout(resolve, config.RETRY_DELAY_SECONDS_SENTENCE / 2));
+                }
+                
+            } catch (chapterError) {
+                const chapterNumber = i + 1;
+                addLog(`Error processing Chapter ${chapterNumber}`, 'error', chapterError);
+                const chapterLines = chapters[i].split('\n').filter(line => line.trim());
+                processingState.failedLines += chapterLines.length;
+                processingState.processedLines += chapterLines.length;
             }
         }
         
         if (processingState.isRunning) {
             processingState.status = 'completed';
-            addLog('Sentence processing completed successfully!');
+            const finalSqlFile = `book_sentences_final_${timestamp}.sql`;
+            sqlGenerator.saveToFile(finalSqlFile);
+            addLog('Chapter processing completed successfully!');
             addLog(`Final results - Total: ${processingState.totalLines}, Success: ${processingState.successfulLines}, Failed: ${processingState.failedLines}`);
-            addLog(`File processed: ${filePath}`);
+            addLog(`Final SQL saved to: ${finalSqlFile}`);
+            addLog(`Error log: ${errorLogFile}`);
+            addLog(`Success log: ${successLogFile}`);
         } else {
             processingState.status = 'stopped';
-            addLog('Sentence processing stopped by user');
+            addLog('Chapter processing stopped by user');
         }
         
         processingState.isRunning = false;
@@ -328,6 +455,104 @@ async function processSentences(lines, batchSize, filePath) {
         processingState.status = 'error';
         addLog(`Processing failed for file: ${filePath}`);
     }
+}
+
+async function processBatchLinesWithAI(lineDataArray, chapterNumber, errorLogFile, successLogFile) {
+    const results = [];
+    const batchSize = config.BATCH_SIZE || 10;
+    
+    addLog(`Processing chapter ${chapterNumber} in batches of ${batchSize} lines`);
+    
+    // Process lines in smaller batches within the chapter
+    for (let i = 0; i < lineDataArray.length; i += batchSize) {
+        const batch = lineDataArray.slice(i, Math.min(i + batchSize, lineDataArray.length));
+        const batchNumber = Math.floor(i / batchSize) + 1;
+        
+        addLog(`  Processing batch ${batchNumber} of chapter ${chapterNumber} (${batch.length} lines)`);
+        
+        for (let attempt = 1; attempt <= config.MAX_RETRIES_SENTENCE; attempt++) {
+            try {
+                addLog(`    Attempt ${attempt}/${config.MAX_RETRIES_SENTENCE} for batch ${batchNumber}`);
+                
+                // Call your existing AI model
+                const rawModelResponse = await modelClient.getBatchTranslation(batch);
+                
+                if (!rawModelResponse || !rawModelResponse.trim()) {
+                    addLog(`    No content from batch model on attempt ${attempt}`, 'error');
+                    if (attempt < config.MAX_RETRIES_SENTENCE) {
+                        await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
+                        continue;
+                    } else {
+                        // Mark all lines in batch as failed
+                        for (const lineData of batch) {
+                            modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse, null, errorLogFile);
+                            sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse);
+                            results.push(false);
+                        }
+                        break;
+                    }
+                }
+                
+                // Log successful response
+                modelClient.logSuccessfulResponse(batch, rawModelResponse, successLogFile);
+                addLog(`    ✓ Received AI response for batch ${batchNumber} (${rawModelResponse.length} characters)`);
+                
+                // Parse the response
+                const responseLines = rawModelResponse.split('\n').filter(line => line.trim());
+                
+                for (let j = 0; j < batch.length; j++) {
+                    const lineData = batch[j];
+                    const responseLine = responseLines[j] || null;
+                    
+                    if (!responseLine) {
+                        addLog(`    ✗ No response for line ${lineData.line_number} in batch ${batchNumber}`, 'error');
+                        modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No response for this line in batch", rawModelResponse, null, errorLogFile);
+                        sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No response for this line in batch", rawModelResponse);
+                        results.push(false);
+                        continue;
+                    }
+                    
+                    // Parse the individual line response
+                    const [germanAnnotated, englishAnnotated, parseErrors] = textProcessor.parseTranslationResponse(responseLine);
+                    
+                    if (germanAnnotated !== null && englishAnnotated !== null) {
+                        sqlGenerator.addSuccessfulLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, germanAnnotated, englishAnnotated, parseErrors);
+                        addLog(`    ✓ Successfully processed C${lineData.chapter_id}_L${lineData.line_number}`);
+                        results.push(true);
+                    } else {
+                        addLog(`    ✗ Failed to parse C${lineData.chapter_id}_L${lineData.line_number}: ${parseErrors.join('; ')}`, 'error');
+                        modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response", responseLine, parseErrors, errorLogFile);
+                        sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), responseLine);
+                        results.push(false);
+                    }
+                }
+                
+                // Success - break out of retry loop
+                break;
+                
+            } catch (error) {
+                addLog(`    ✗ Error processing batch ${batchNumber} on attempt ${attempt}: ${error.message}`, 'error');
+                if (attempt < config.MAX_RETRIES_SENTENCE) {
+                    await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
+                } else {
+                    // Mark all lines in batch as failed
+                    for (const lineData of batch) {
+                        modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "", [], errorLogFile);
+                        sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "");
+                        results.push(false);
+                    }
+                }
+            }
+        }
+        
+        // Add delay between batches within chapter
+        if (i + batchSize < lineDataArray.length) {
+            addLog(`    Pausing ${config.RETRY_DELAY_SECONDS_SENTENCE / 4}ms between batches...`);
+            await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE / 4);
+        }
+    }
+    
+    return results;
 }
 
 async function processBatch(filePath, projectId, gcsInputBucket, gcsOutputBucket) {

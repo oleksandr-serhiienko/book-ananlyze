@@ -29,19 +29,43 @@
                 </div>
                 
                 <div class="input-group" id="batchSizeGroup">
-                    <label for="batchSize">Batch Size:</label>
-                    <input type="number" id="batchSize" value="10" min="1" max="100">
+                    <label for="batchInfo">Batch Processing:</label>
+                    <span id="batchInfo" style="color: #4a5568; font-style: italic;">Batch size will be set automatically based on detected chapters</span>
+                </div>
+                
+                <div class="input-group" id="aiConfigGroup">
+                    <h3 style="color: #4a5568; margin-bottom: 10px;">AI Configuration</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <label for="aiProjectId">Project ID:</label>
+                            <input type="text" id="aiProjectId" value="188935312243">
+                        </div>
+                        <div>
+                            <label for="aiLocation">Location:</label>
+                            <input type="text" id="aiLocation" value="europe-southwest1">
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label for="aiModelEndpoint">Model Endpoint:</label>
+                        <input type="text" id="aiModelEndpoint" value="projects/188935312243/locations/europe-southwest1/endpoints/3012068123827240960" style="width: 100%; font-size: 0.9em;">
+                    </div>
                 </div>
                 
                 <div class="input-group" id="batchConfigGroup" style="display: none;">
                     <label for="gcsInputBucket">GCS Input Bucket:</label>
-                    <input type="text" id="gcsInputBucket" placeholder="gs://vertex-batch-188935312243/input/">
+                    <input type="text" id="gcsInputBucket" value="gs://vertex-batch-188935312243/input/">
                     
                     <label for="gcsOutputBucket">GCS Output Bucket:</label>
-                    <input type="text" id="gcsOutputBucket" placeholder="gs://vertex-batch-188935312243/output/">
+                    <input type="text" id="gcsOutputBucket" value="gs://vertex-batch-188935312243/output/">
                     
                     <label for="projectId">Project ID:</label>
-                    <input type="text" id="projectId" placeholder="your-project-id">
+                    <input type="text" id="projectId" value="188935312243">
+                    
+                    <label for="location">Location:</label>
+                    <input type="text" id="location" value="europe-southwest1">
+                    
+                    <label for="modelEndpoint">Model Endpoint:</label>
+                    <input type="text" id="modelEndpoint" value="projects/188935312243/locations/europe-southwest1/endpoints/3012068123827240960" style="width: 100%; font-size: 0.9em;">
                 </div>
 
                 <div class="button-group">

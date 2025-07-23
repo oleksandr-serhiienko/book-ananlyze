@@ -25,7 +25,7 @@ const [,, inFile, outFile] = process.argv;
 // ---------------------------------------------------------------------------
 const SYSTEM_TEXT =
   'You are a DE‑EN translator. Preserve /index/ tags exactly.';
-const CHAP_REGEX  = /^\[CHAPTER MARKER]/i;           // chapter header
+const CHAP_REGEX  = /^\[(CHAPTER|BOOK) MARKER]/i;    // chapter/book header
 
 // ---------------------------------------------------------------------------
 // 2.  read input, split into chapters

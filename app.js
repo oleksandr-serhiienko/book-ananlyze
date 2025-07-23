@@ -2,6 +2,7 @@ class BookProcessorUI {
     constructor() {
         this.isProcessing = false;
         this.totalLines = 0;
+        this.totalChapters = 0;
         this.processedLines = 0;
         this.successfulLines = 0;
         this.failedLines = 0;
@@ -15,7 +16,6 @@ class BookProcessorUI {
     initializeElements() {
         this.elements = {
             textFile: document.getElementById('textFile'),
-            batchSize: document.getElementById('batchSize'),
             startBtn: document.getElementById('startProcessing'),
             stopBtn: document.getElementById('stopProcessing'),
             downloadBtn: document.getElementById('downloadSQL'),
@@ -95,7 +95,6 @@ class BookProcessorUI {
         this.elements.startBtn.disabled = this.isProcessing;
         this.elements.stopBtn.disabled = !this.isProcessing;
         this.elements.textFile.disabled = this.isProcessing;
-        this.elements.batchSize.disabled = this.isProcessing;
         
         if (this.isProcessing) {
             this.elements.status.textContent = 'Processing...';
@@ -139,16 +138,18 @@ class BookProcessorUI {
 
     async startSentenceProcessing() {
         const filePath = this.elements.textFile.value.trim();
-        const batchSize = parseInt(this.elements.batchSize.value);
 
-        if (batchSize < 1 || batchSize > 100) {
-            this.addLog('Batch size must be between 1 and 100', 'error');
-            return;
-        }
+        // Get AI configuration from form
+        const aiConfig = {
+            projectId: document.getElementById('aiProjectId').value.trim(),
+            location: document.getElementById('aiLocation').value.trim(),
+            modelEndpoint: document.getElementById('aiModelEndpoint').value.trim()
+        };
 
-        this.addLog('Starting sentence processing...', 'info');
+        this.addLog('Starting chapter-based processing...', 'info');
         this.addLog(`File: ${filePath}`, 'info');
-        this.addLog(`Batch size: ${batchSize}`, 'info');
+        this.addLog(`AI Config: Project ${aiConfig.projectId}, Location ${aiConfig.location}`, 'info');
+        this.addLog('Detecting chapters and setting batch size automatically...', 'info');
 
         try {
             const response = await fetch('http://localhost:3001/api/process/start', {
@@ -158,7 +159,7 @@ class BookProcessorUI {
                 },
                 body: JSON.stringify({
                     filePath,
-                    batchSize
+                    aiConfig
                 })
             });
 
@@ -174,6 +175,12 @@ class BookProcessorUI {
             const result = await response.json();
             this.addLog(result.message, 'success');
             this.totalLines = result.totalLines || 0;
+            this.totalChapters = result.totalChapters || 0;
+            
+            if (result.totalChapters) {
+                this.addLog(`Detected ${result.totalChapters} chapters, processing one chapter per batch`, 'info');
+            }
+            
             this.updateUI();
 
             // Start polling for status updates
@@ -196,10 +203,12 @@ class BookProcessorUI {
     async startBatchProcessing() {
         const filePath = this.elements.textFile.value.trim();
         const projectId = document.getElementById('projectId').value.trim();
+        const location = document.getElementById('location').value.trim();
+        const modelEndpoint = document.getElementById('modelEndpoint').value.trim();
         const gcsInputBucket = document.getElementById('gcsInputBucket').value.trim();
         const gcsOutputBucket = document.getElementById('gcsOutputBucket').value.trim();
 
-        if (!projectId || !gcsInputBucket || !gcsOutputBucket) {
+        if (!projectId || !location || !modelEndpoint || !gcsInputBucket || !gcsOutputBucket) {
             this.addLog('Please fill in all batch processing fields', 'error');
             return;
         }
@@ -207,6 +216,8 @@ class BookProcessorUI {
         this.addLog('Starting batch processing...', 'info');
         this.addLog(`File: ${filePath}`, 'info');
         this.addLog(`Project ID: ${projectId}`, 'info');
+        this.addLog(`Location: ${location}`, 'info');
+        this.addLog(`Model: ${modelEndpoint}`, 'info');
 
         try {
             const response = await fetch('http://localhost:3001/api/batch/start', {
@@ -217,6 +228,8 @@ class BookProcessorUI {
                 body: JSON.stringify({
                     filePath,
                     projectId,
+                    location,
+                    modelEndpoint,
                     gcsInputBucket,
                     gcsOutputBucket
                 })
@@ -268,6 +281,7 @@ class BookProcessorUI {
                 // Update processing state
                 this.isProcessing = status.isRunning;
                 this.totalLines = status.totalLines || this.totalLines;
+                this.totalChapters = status.totalChapters || this.totalChapters;
                 this.processedLines = status.processedLines || this.processedLines;
                 this.successfulLines = status.successfulLines || this.successfulLines;
                 this.failedLines = status.failedLines || this.failedLines;
@@ -354,6 +368,7 @@ class BookProcessorUI {
 
     resetStats() {
         this.totalLines = 0;
+        this.totalChapters = 0;
         this.processedLines = 0;
         this.successfulLines = 0;
         this.failedLines = 0;

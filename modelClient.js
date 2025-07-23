@@ -1,16 +1,16 @@
-const { VertexAI } = require('@google-cloud/vertexai');
+const { GoogleGenAI } = require('@google/genai');
 const fs = require('fs');
 
 class ModelClient {
     constructor(config) {
         this.config = config;
-        this.vertexAI = new VertexAI({
+        this.ai = new GoogleGenAI({
+            vertexai: true,
             project: config.PROJECT_ID,
             location: config.LOCATION
         });
-        this.model = this.vertexAI.getGenerativeModel({
-            model: config.MODEL_NAME,
-        });
+        this.model = config.MODEL_ENDPOINT;
+        this.generationConfig = config.GENERATION_CONFIG;
     }
 
     async getBatchTranslation(batchLines) {
@@ -18,17 +18,28 @@ class ModelClient {
         const prompt = `de-en |${batchText}|`;
         
         try {
-            const request = {
-                contents: [{
-                    role: 'user',
-                    parts: [{ text: prompt }]
-                }],
-                generationConfig: this.config.MODEL_CONFIG,
-                safetySettings: this.config.SAFETY_SETTINGS
-            };
+            const chat = this.ai.chats.create({
+                model: this.model,
+                config: this.generationConfig
+            });
 
-            const result = await this.model.generateContent(request);
-            return result.response.candidates[0].content.parts[0].text;
+            const message = { text: prompt };
+            const response = await chat.sendMessage({ message: [message] });
+            
+            // Handle streaming response
+            let fullResponse = '';
+            if (response.text) {
+                fullResponse = response.text;
+            } else {
+                // Handle stream if needed
+                for await (const chunk of response) {
+                    if (chunk.text) {
+                        fullResponse += chunk.text;
+                    }
+                }
+            }
+            
+            return fullResponse;
             
         } catch (error) {
             throw error;

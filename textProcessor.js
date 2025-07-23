@@ -71,19 +71,36 @@ class TextProcessor {
 
     parseTranslationResponse(responseContent) {
         const errors = [];
-        const parts = responseContent.split('|');
         
-        if (parts.length >= 4) {
-            let germanAnnotated = parts[1].trim();
-            if (germanAnnotated.endsWith(',')) {
-                germanAnnotated = germanAnnotated.slice(0, -1).trim();
+        try {
+            // Try to parse as JSON first
+            const parsed = JSON.parse(responseContent.trim());
+            
+            if (parsed.original && parsed.translated) {
+                return [parsed.original, parsed.translated, errors];
+            } else {
+                errors.push(`JSON response missing required fields 'original' or 'translated'`);
+                errors.push(`Found fields: ${Object.keys(parsed).join(', ')}`);
+                return [null, null, errors];
             }
-            const englishAnnotated = parts[3].trim();
-            return [germanAnnotated, englishAnnotated, errors];
-        } else {
-            errors.push(`Unexpected line response format. Expected at least 4 parts when splitting by '|', got ${parts.length}.`);
-            errors.push(`Full response part: '${responseContent.substring(0, 200)}...'`);
-            return [null, null, errors];
+            
+        } catch (jsonError) {
+            // Fallback to old pipe-delimited format
+            const parts = responseContent.split('|');
+            
+            if (parts.length >= 4) {
+                let germanAnnotated = parts[1].trim();
+                if (germanAnnotated.endsWith(',')) {
+                    germanAnnotated = germanAnnotated.slice(0, -1).trim();
+                }
+                const englishAnnotated = parts[3].trim();
+                return [germanAnnotated, englishAnnotated, errors];
+            } else {
+                errors.push(`Failed to parse as JSON: ${jsonError.message}`);
+                errors.push(`Failed to parse as pipe-delimited: Expected at least 4 parts when splitting by '|', got ${parts.length}.`);
+                errors.push(`Full response: '${responseContent.substring(0, 200)}...'`);
+                return [null, null, errors];
+            }
         }
     }
 }
