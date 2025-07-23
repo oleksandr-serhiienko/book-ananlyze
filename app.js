@@ -38,6 +38,23 @@ class BookProcessorUI {
         this.elements.downloadBtn.addEventListener('click', () => this.downloadSQL());
         this.elements.clearLogsBtn.addEventListener('click', () => this.clearLogs());
         
+        // Handle processing mode changes
+        const processingMode = document.getElementById('processingMode');
+        const batchConfigGroup = document.getElementById('batchConfigGroup');
+        const batchSizeGroup = document.getElementById('batchSizeGroup');
+        
+        if (processingMode) {
+            processingMode.addEventListener('change', (e) => {
+                if (e.target.value === 'batch') {
+                    batchConfigGroup.style.display = 'block';
+                    batchSizeGroup.style.display = 'none';
+                } else {
+                    batchConfigGroup.style.display = 'none';
+                    batchSizeGroup.style.display = 'block';
+                }
+            });
+        }
+        
         // Set default file path
         this.elements.textFile.value = "C:\\Dev\\Application\\book-prepare\\third_book_all_chapters.txt";
     }
@@ -95,15 +112,10 @@ class BookProcessorUI {
 
     async startProcessing() {
         const filePath = this.elements.textFile.value.trim();
-        const batchSize = parseInt(this.elements.batchSize.value);
+        const processingMode = document.getElementById('processingMode').value;
 
         if (!filePath) {
             this.addLog('Please enter a text file path', 'error');
-            return;
-        }
-
-        if (batchSize < 1 || batchSize > 100) {
-            this.addLog('Batch size must be between 1 and 100', 'error');
             return;
         }
 
@@ -112,84 +124,92 @@ class BookProcessorUI {
         this.resetStats();
         this.updateUI();
 
-        this.addLog('Starting processing...', 'info');
+        try {
+            if (processingMode === 'batch') {
+                await this.startBatchProcessing();
+            } else {
+                await this.startSentenceProcessing();
+            }
+        } catch (error) {
+            this.addLog(`Error: ${error.message}`, 'error');
+            this.isProcessing = false;
+            this.updateUI();
+        }
+    }
+
+    async startSentenceProcessing() {
+        const filePath = this.elements.textFile.value.trim();
+        const batchSize = parseInt(this.elements.batchSize.value);
+
+        if (batchSize < 1 || batchSize > 100) {
+            this.addLog('Batch size must be between 1 and 100', 'error');
+            return;
+        }
+
+        this.addLog('Starting sentence processing...', 'info');
         this.addLog(`File: ${filePath}`, 'info');
         this.addLog(`Batch size: ${batchSize}`, 'info');
 
         try {
-            // Simulate processing since we can't actually run Node.js from browser
-            await this.simulateProcessing(filePath, batchSize);
-        } catch (error) {
-            this.addLog(`Error: ${error.message}`, 'error');
-        }
+            const response = await fetch('http://localhost:3001/api/process/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    filePath,
+                    batchSize
+                })
+            });
 
-        this.isProcessing = false;
-        this.updateUI();
-    }
-
-    async simulateProcessing(filePath, batchSize) {
-        // This is a simulation - in a real implementation, you'd call the Node.js backend
-        this.totalLines = Math.floor(Math.random() * 100) + 20; // Random number of lines
-        this.updateUI();
-
-        for (let i = 0; i < this.totalLines; i += batchSize) {
-            if (!this.isProcessing) break; // Check for stop
-
-            const currentBatch = Math.min(batchSize, this.totalLines - i);
-            this.addLog(`Processing batch ${Math.floor(i/batchSize) + 1} (${currentBatch} lines)`, 'info');
-
-            // Simulate processing time
-            await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
-
-            // Simulate results
-            const batchSuccesses = Math.floor(currentBatch * (0.7 + Math.random() * 0.3)); // 70-100% success rate
-            const batchFailures = currentBatch - batchSuccesses;
-
-            this.successfulLines += batchSuccesses;
-            this.failedLines += batchFailures;
-            this.processedLines += currentBatch;
-
-            if (batchSuccesses > 0) {
-                this.addLog(`✓ Successfully processed ${batchSuccesses} lines`, 'success');
-            }
-            if (batchFailures > 0) {
-                this.addLog(`✗ Failed to process ${batchFailures} lines`, 'error');
+            if (!response.ok) {
+                const error = await response.json();
+                let errorMessage = error.error || 'Failed to start processing';
+                if (error.details) errorMessage += `\nDetails: ${error.details}`;
+                if (error.path) errorMessage += `\nFile: ${error.path}`;
+                if (error.code) errorMessage += `\nError Code: ${error.code}`;
+                throw new Error(errorMessage);
             }
 
+            const result = await response.json();
+            this.addLog(result.message, 'success');
+            this.totalLines = result.totalLines || 0;
             this.updateUI();
-        }
 
-        if (this.isProcessing) {
-            this.addLog('Processing completed!', 'success');
-            this.addLog(`Total: ${this.totalLines}, Success: ${this.successfulLines}, Failed: ${this.failedLines}`, 'info');
-        } else {
-            this.addLog('Processing stopped by user', 'info');
-        }
-    }
+            // Start polling for status updates
+            this.pollStatus();
 
-    stopProcessing() {
-        this.isProcessing = false;
-        
-        if (this.elements.processingMode.value === 'batch' && this.batchJobName) {
-            this.stopBatchProcessing();
-        } else {
-            this.addLog('Stopping processing...', 'info');
+        } catch (error) {
+            // Display detailed error information
+            const errorLines = error.message.split('\n');
+            errorLines.forEach((line, index) => {
+                if (index === 0) {
+                    this.addLog(`Error starting processing: ${line}`, 'error');
+                } else if (line.trim()) {
+                    this.addLog(`  ${line}`, 'error');
+                }
+            });
+            throw error;
         }
     }
 
-    resetStats() {
-        this.totalLines = 0;
-        this.processedLines = 0;
-        this.successfulLines = 0;
-        this.failedLines = 0;
-        this.startTime = null;
-        this.batchJobName = null;
-    }
+    async startBatchProcessing() {
+        const filePath = this.elements.textFile.value.trim();
+        const projectId = document.getElementById('projectId').value.trim();
+        const gcsInputBucket = document.getElementById('gcsInputBucket').value.trim();
+        const gcsOutputBucket = document.getElementById('gcsOutputBucket').value.trim();
 
-    async processBatch(filePath, projectId, gcsInputBucket, gcsOutputBucket) {
+        if (!projectId || !gcsInputBucket || !gcsOutputBucket) {
+            this.addLog('Please fill in all batch processing fields', 'error');
+            return;
+        }
+
+        this.addLog('Starting batch processing...', 'info');
+        this.addLog(`File: ${filePath}`, 'info');
+        this.addLog(`Project ID: ${projectId}`, 'info');
+
         try {
-            // Start batch processing via API
-            const response = await fetch('/api/batch/start', {
+            const response = await fetch('http://localhost:3001/api/batch/start', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -201,58 +221,93 @@ class BookProcessorUI {
                     gcsOutputBucket
                 })
             });
-            
+
             if (!response.ok) {
                 const error = await response.json();
-                throw new Error(error.error || 'Failed to start batch processing');
+                let errorMessage = error.error || 'Failed to start batch processing';
+                if (error.details) errorMessage += `\nDetails: ${error.details}`;
+                if (error.missingFields) errorMessage += `\nMissing: ${error.missingFields.join(', ')}`;
+                if (error.path) errorMessage += `\nFile: ${error.path}`;
+                if (error.code) errorMessage += `\nError Code: ${error.code}`;
+                throw new Error(errorMessage);
             }
-            
+
             const result = await response.json();
             this.addLog(result.message, 'success');
-            
+
             // Start polling for status updates
-            this.pollBatchStatus();
-            
+            this.pollStatus();
+
         } catch (error) {
-            this.addLog(`Error starting batch processing: ${error.message}`, 'error');
+            // Display detailed error information
+            const errorLines = error.message.split('\n');
+            errorLines.forEach((line, index) => {
+                if (index === 0) {
+                    this.addLog(`Error starting batch processing: ${line}`, 'error');
+                } else if (line.trim()) {
+                    this.addLog(`  ${line}`, 'error');
+                }
+            });
             throw error;
         }
     }
-    
-    async pollBatchStatus() {
-        const pollInterval = 3000; // 3 seconds
+
+    async pollStatus() {
+        const pollInterval = 2000; // 2 seconds
+        let lastLogCount = 0;
         
         while (this.isProcessing) {
             try {
-                const response = await fetch('/api/batch/status');
+                const response = await fetch('http://localhost:3001/api/status');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch status');
+                }
+                
                 const status = await response.json();
                 
-                // Update logs with new entries
-                if (status.logs && status.logs.length > 0) {
-                    const lastLogIndex = this.elements.logOutput.children.length;
-                    for (let i = Math.max(0, lastLogIndex - 10); i < status.logs.length; i++) {
-                        if (i >= 0 && status.logs[i]) {
-                            const logType = status.logs[i].includes('✅') ? 'success' : 
-                                          status.logs[i].includes('❌') ? 'error' : 'info';
-                            this.addLog(status.logs[i], logType);
+                // Update processing state
+                this.isProcessing = status.isRunning;
+                this.totalLines = status.totalLines || this.totalLines;
+                this.processedLines = status.processedLines || this.processedLines;
+                this.successfulLines = status.successfulLines || this.successfulLines;
+                this.failedLines = status.failedLines || this.failedLines;
+                this.batchJobName = status.jobName;
+                
+                // Add new logs with better formatting for multi-line entries
+                if (status.logs && status.logs.length > lastLogCount) {
+                    for (let i = lastLogCount; i < status.logs.length; i++) {
+                        const logMessage = status.logs[i];
+                        let logType = 'info';
+                        
+                        if (logMessage.includes('✓') || logMessage.includes('success') || logMessage.toLowerCase().includes('completed')) {
+                            logType = 'success';
+                        } else if (logMessage.includes('✗') || logMessage.includes('Error') || logMessage.includes('Failed') || logMessage.includes('stderr')) {
+                            logType = 'error';
+                        }
+                        
+                        // Handle multi-line log entries (like stack traces)
+                        if (logMessage.includes('\n')) {
+                            const lines = logMessage.split('\n');
+                            lines.forEach((line, lineIndex) => {
+                                if (lineIndex === 0) {
+                                    this.addLogEntry(line, logType);
+                                } else if (line.trim()) {
+                                    this.addLogEntry(`  ${line}`, logType);
+                                }
+                            });
+                        } else {
+                            this.addLogEntry(logMessage, logType);
                         }
                     }
+                    lastLogCount = status.logs.length;
                 }
                 
-                // Update job name if available
-                if (status.jobName && !this.batchJobName) {
-                    this.batchJobName = status.jobName;
-                }
+                this.updateUI();
                 
-                // Check if job is completed
+                // Check if processing completed
                 if (!status.isRunning) {
-                    if (status.status === 'succeeded' || status.status === 'partially_succeeded') {
-                        this.totalLines = 50; // Simulated
-                        this.processedLines = this.totalLines;
-                        this.successfulLines = Math.floor(this.totalLines * 0.9);
-                        this.failedLines = this.totalLines - this.successfulLines;
-                        this.updateProgress();
-                    }
+                    this.isProcessing = false;
+                    this.updateUI();
                     break;
                 }
                 
@@ -260,59 +315,78 @@ class BookProcessorUI {
                 
             } catch (error) {
                 this.addLog(`Error polling status: ${error.message}`, 'error');
+                this.isProcessing = false;
+                this.updateUI();
                 break;
             }
         }
     }
     
-    async stopBatchProcessing() {
-        try {
-            await fetch('/api/batch/stop', { method: 'POST' });
-            this.addLog('Batch processing stop requested', 'info');
-        } catch (error) {
-            this.addLog(`Error stopping batch processing: ${error.message}`, 'error');
-        }
+    addLogEntry(message, type = 'info') {
+        // Add log entry without timestamp (backend already includes timestamp)
+        const logEntry = document.createElement('div');
+        logEntry.className = `log-entry ${type}`;
+        logEntry.textContent = message;
+        
+        this.elements.logOutput.appendChild(logEntry);
+        this.elements.logOutput.scrollTop = this.elements.logOutput.scrollHeight;
     }
 
-    downloadSQL() {
-        // Simulate SQL download
-        const sqlContent = `-- Book Sentences SQL Export
--- Generated: ${new Date().toISOString()}
--- Total processed: ${this.processedLines} lines
--- Successful: ${this.successfulLines}
--- Failed: ${this.failedLines}
+    async stopProcessing() {
+        this.isProcessing = false;
+        this.addLog('Stopping processing...', 'info');
+        
+        try {
+            const response = await fetch('http://localhost:3001/api/stop', {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                this.addLog(result.message, 'info');
+            }
+        } catch (error) {
+            this.addLog(`Error stopping processing: ${error.message}`, 'error');
+        }
+        
+        this.updateUI();
+    }
 
-PRAGMA foreign_keys = ON;
+    resetStats() {
+        this.totalLines = 0;
+        this.processedLines = 0;
+        this.successfulLines = 0;
+        this.failedLines = 0;
+        this.startTime = null;
+        this.batchJobName = null;
+    }
 
-CREATE TABLE IF NOT EXISTS book_sentences (
-    id INTEGER PRIMARY KEY,
-    sentence_number INTEGER,
-    chapter_id INTEGER,
-    original_text TEXT,
-    original_parsed_text TEXT,
-    translation_parsed_text TEXT,
-    processing_errors TEXT
-);
 
-CREATE INDEX IF NOT EXISTS idx_book_sentences_chapter_sentence ON book_sentences(chapter_id, sentence_number);
+    async downloadSQL() {
+        try {
+            const response = await fetch('http://localhost:3001/api/download/sql');
+            
+            if (!response.ok) {
+                throw new Error('Failed to download SQL file');
+            }
+            
+            const sqlContent = await response.text();
+            
+            const blob = new Blob([sqlContent], { type: 'text/sql' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'book_sentences_inserts.sql';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
 
--- Sample data (simulated)
-${Array.from({length: this.successfulLines}, (_, i) => 
-    `INSERT INTO book_sentences (chapter_id, sentence_number, original_text, original_parsed_text, translation_parsed_text, processing_errors) VALUES (1, ${i+1}, 'Sample text ${i+1}', 'Sample/1/ German/2/ text/3/', 'Sample English text', NULL);`
-).join('\n')}
-`;
-
-        const blob = new Blob([sqlContent], { type: 'text/sql' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'book_sentences_inserts.sql';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        this.addLog('SQL file downloaded successfully', 'success');
+            this.addLog('SQL file downloaded successfully', 'success');
+            
+        } catch (error) {
+            this.addLog(`Error downloading SQL: ${error.message}`, 'error');
+        }
     }
 }
 

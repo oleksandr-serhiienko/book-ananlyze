@@ -232,6 +232,13 @@ button:disabled {
 .log-entry {
     margin-bottom: 5px;
     padding: 5px 0;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-width: 100%;
+    overflow-x: auto;
+    line-height: 1.3;
 }
 
 .log-entry.success {
@@ -240,6 +247,11 @@ button:disabled {
 
 .log-entry.error {
     color: #f56565;
+    background-color: rgba(245, 101, 101, 0.1);
+    border-left: 3px solid #f56565;
+    padding-left: 8px;
+    margin-left: -8px;
+    border-radius: 3px;
 }
 
 .log-entry.info {
