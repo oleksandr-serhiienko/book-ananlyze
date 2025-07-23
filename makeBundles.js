@@ -72,5 +72,13 @@ for (const text of chapters) {
   outStream.write(JSON.stringify(req) + '\n');
 }
 
-await pipeline(outStream);
+// Close the stream properly
+outStream.end();
+
+// Wait for the stream to finish
+await new Promise((resolve, reject) => {
+  outStream.on('finish', resolve);
+  outStream.on('error', reject);
+});
+
 console.log(`✅  Bundles written ➜  ${outFile}`);

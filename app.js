@@ -139,11 +139,11 @@ class BookProcessorUI {
     async startSentenceProcessing() {
         const filePath = this.elements.textFile.value.trim();
 
-        // Get AI configuration from form
+        // Get AI configuration from form (now using shared fields)
         const aiConfig = {
-            projectId: document.getElementById('aiProjectId').value.trim(),
-            location: document.getElementById('aiLocation').value.trim(),
-            modelEndpoint: document.getElementById('aiModelEndpoint').value.trim()
+            projectId: document.getElementById('projectId').value.trim(),
+            location: document.getElementById('location').value.trim(),
+            modelEndpoint: document.getElementById('modelEndpoint').value.trim()
         };
 
         this.addLog('Starting chapter-based processing...', 'info');
