@@ -526,106 +526,61 @@ async function processChapters(chapters, filePath) {
 
 async function processBatchLinesWithAI(lineDataArray, chapterNumber, errorLogFile, successLogFile) {
     const results = [];
-    const batchSize = config.BATCH_SIZE || 10;
     
-    addLog(`Processing chapter ${chapterNumber} in batches of ${batchSize} lines`);
+    addLog(`Processing chapter ${chapterNumber} with ${lineDataArray.length} lines (one by one)`);
     
-    // Process lines in smaller batches within the chapter
-    for (let i = 0; i < lineDataArray.length; i += batchSize) {
-        const batch = lineDataArray.slice(i, Math.min(i + batchSize, lineDataArray.length));
-        const batchNumber = Math.floor(i / batchSize) + 1;
+    // Process lines one by one
+    for (let i = 0; i < lineDataArray.length; i++) {
+        const lineData = lineDataArray[i];
         
-        addLog(`  Processing batch ${batchNumber} of chapter ${chapterNumber} (${batch.length} lines)`);
+        addLog(`  Processing line ${i + 1}/${lineDataArray.length} of chapter ${chapterNumber}`);
         
         for (let attempt = 1; attempt <= config.MAX_RETRIES_SENTENCE; attempt++) {
             try {
-                addLog(`    Attempt ${attempt}/${config.MAX_RETRIES_SENTENCE} for batch ${batchNumber}`);
-                addLog(`    Sending ${batch.length} lines to AI model...`);
+                addLog(`    Attempt ${attempt}/${config.MAX_RETRIES_SENTENCE} for C${lineData.chapter_id}_L${lineData.line_number}`);
+                addLog(`    Sending line to AI model...`);
                 
-                // Call your existing AI model
-                const rawModelResponse = await modelClient.getBatchTranslation(batch);
+                // Call the single translation method
+                const rawModelResponse = await modelClient.getSingleTranslation(lineData);
                 
                 addLog(`    Raw AI response received: ${rawModelResponse ? rawModelResponse.length : 0} characters`);
                 
                 if (!rawModelResponse || !rawModelResponse.trim()) {
-                    addLog(`    No content from batch model on attempt ${attempt}`, 'error');
+                    addLog(`    No content from model on attempt ${attempt}`, 'error');
                     if (attempt < config.MAX_RETRIES_SENTENCE) {
                         await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
                         continue;
                     } else {
-                        // Mark all lines in batch as failed
-                        for (const lineData of batch) {
-                            modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse, null, errorLogFile);
-                            sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse);
-                            results.push(false);
-                        }
+                        modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse, null, errorLogFile);
+                        sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse);
+                        results.push(false);
                         break;
                     }
                 }
                 
                 // Log successful response
-                modelClient.logSuccessfulResponse(batch, rawModelResponse, successLogFile);
-                addLog(`    ✓ Received AI response for batch ${batchNumber} (${rawModelResponse.length} characters)`);
+                modelClient.logSuccessfulResponse([lineData], rawModelResponse, successLogFile);
+                addLog(`    ✓ Received AI response for C${lineData.chapter_id}_L${lineData.line_number} (${rawModelResponse.length} characters)`);
                 
-                // Parse the response - handle both line-by-line JSON and single JSON array
-                let responseLines = [];
+                // Parse the individual line response
+                const [germanAnnotated, englishAnnotated, parseErrors] = textProcessor.parseTranslationResponse(rawModelResponse);
                 
-                // First try to parse as individual JSON lines
-                const rawLines = rawModelResponse.split('\n').filter(line => line.trim());
-                
-                for (const line of rawLines) {
-                    const trimmedLine = line.trim();
-                    if (trimmedLine.startsWith('{') && trimmedLine.endsWith('}')) {
-                        responseLines.push(trimmedLine);
-                    }
-                }
-                
-                // If we don't have enough individual JSON lines, try parsing as a single response
-                if (responseLines.length < batch.length) {
-                    addLog(`    Only found ${responseLines.length} JSON lines, expected ${batch.length}. Attempting single response parsing...`);
-                    
-                    // Try to extract JSON objects from the full response
-                    const jsonMatches = rawModelResponse.match(/\{[^}]+\}/g);
-                    if (jsonMatches && jsonMatches.length >= batch.length) {
-                        responseLines = jsonMatches.slice(0, batch.length);
-                        addLog(`    Extracted ${responseLines.length} JSON objects from response`);
-                    }
-                }
-                
-                addLog(`    Processing ${responseLines.length} response lines for ${batch.length} input lines`);
-                
-                for (let j = 0; j < batch.length; j++) {
-                    const lineData = batch[j];
-                    const responseLine = responseLines[j] || null;
-                    
-                    if (!responseLine) {
-                        addLog(`    ✗ No response for line ${lineData.line_number} in batch ${batchNumber}`, 'error');
-                        modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No response for this line in batch", rawModelResponse.substring(0, 200), null, errorLogFile);
-                        sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No response for this line in batch", rawModelResponse.substring(0, 200));
-                        results.push(false);
-                        continue;
-                    }
-                    
-                    // Parse the individual line response
-                    const [germanAnnotated, englishAnnotated, parseErrors] = textProcessor.parseTranslationResponse(responseLine);
-                    
-                    if (germanAnnotated !== null && englishAnnotated !== null) {
-                        sqlGenerator.addSuccessfulLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, germanAnnotated, englishAnnotated, parseErrors);
-                        addLog(`    ✓ Successfully processed C${lineData.chapter_id}_L${lineData.line_number}`);
-                        results.push(true);
-                    } else {
-                        addLog(`    ✗ Failed to parse C${lineData.chapter_id}_L${lineData.line_number}: ${parseErrors.join('; ')}`, 'error');
-                        modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response", responseLine, parseErrors, errorLogFile);
-                        sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), responseLine);
-                        results.push(false);
-                    }
+                if (germanAnnotated !== null && englishAnnotated !== null) {
+                    sqlGenerator.addSuccessfulLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, germanAnnotated, englishAnnotated, parseErrors);
+                    addLog(`    ✓ Successfully processed C${lineData.chapter_id}_L${lineData.line_number}`);
+                    results.push(true);
+                } else {
+                    addLog(`    ✗ Failed to parse C${lineData.chapter_id}_L${lineData.line_number}: ${parseErrors.join('; ')}`, 'error');
+                    modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response", rawModelResponse, parseErrors, errorLogFile);
+                    sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), rawModelResponse);
+                    results.push(false);
                 }
                 
                 // Success - break out of retry loop
                 break;
                 
             } catch (error) {
-                addLog(`    ✗ Error processing batch ${batchNumber} on attempt ${attempt}`, 'error', error);
+                addLog(`    ✗ Error processing C${lineData.chapter_id}_L${lineData.line_number} on attempt ${attempt}`, 'error', error);
                 addLog(`    Error details: ${error.message}`);
                 if (error.stack) {
                     addLog(`    Stack trace: ${error.stack.split('\n').slice(0, 3).join('; ')}`);
@@ -635,20 +590,17 @@ async function processBatchLinesWithAI(lineDataArray, chapterNumber, errorLogFil
                     addLog(`    Retrying in ${config.RETRY_DELAY_SECONDS_SENTENCE}ms...`);
                     await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
                 } else {
-                    // Mark all lines in batch as failed
-                    for (const lineData of batch) {
-                        modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "", [], errorLogFile);
-                        sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "");
-                        results.push(false);
-                    }
+                    modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "", [], errorLogFile);
+                    sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "");
+                    results.push(false);
                 }
             }
         }
         
-        // Add delay between batches within chapter
-        if (i + batchSize < lineDataArray.length) {
-            addLog(`    Pausing ${config.RETRY_DELAY_SECONDS_SENTENCE / 4}ms between batches...`);
-            await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE / 4);
+        // Add small delay between lines
+        if (i + 1 < lineDataArray.length) {
+            addLog(`    Pausing for ${config.RETRY_DELAY_SECONDS_SENTENCE / 2}ms...`);
+            await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE / 2);
         }
     }
     

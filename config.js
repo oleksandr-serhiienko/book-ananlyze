@@ -2,7 +2,7 @@ export default {
     // Processing Configuration
     MAX_RETRIES_SENTENCE: 3,
     RETRY_DELAY_SECONDS_SENTENCE: 10000, // milliseconds
-    BATCH_SIZE: 10, // Number of lines to process in each batch
+    // BATCH_SIZE: 10, // Removed - now processing sentences one by one
 
     // File Paths
     SQL_OUTPUT_FILE_SENTENCES: 'book_sentences_inserts.sql',

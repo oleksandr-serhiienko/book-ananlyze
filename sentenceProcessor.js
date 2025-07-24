@@ -1,8 +1,8 @@
-const fs = require('fs');
-const config = require('./config');
-const TextProcessor = require('./textProcessor');
-const SQLGenerator = require('./sqlGenerator');
-const ModelClient = require('./modelClient');
+import fs from 'fs';
+import config from './config.js';
+import TextProcessor from './textProcessor.js';
+import SQLGenerator from './sqlGenerator.js';
+import ModelClient from './modelClient.js';
 
 class SentenceProcessor {
     constructor() {
@@ -24,85 +24,60 @@ class SentenceProcessor {
         this.isProcessing = false;
     }
 
-    async processBatchLines(batchLines) {
-        const results = [];
-        
+    async processSingleLine(lineData) {
         for (let attempt = 1; attempt <= config.MAX_RETRIES_SENTENCE; attempt++) {
-            console.log(`  Processing batch of ${batchLines.length} lines (attempt ${attempt}/${config.MAX_RETRIES_SENTENCE})`);
+            console.log(`  Processing C${lineData.chapter_id}_S${lineData.line_number} (attempt ${attempt}/${config.MAX_RETRIES_SENTENCE})`);
             
             try {
-                const rawModelResponse = await this.modelClient.getBatchTranslation(batchLines);
+                const rawModelResponse = await this.modelClient.getSingleTranslation(lineData);
                 
                 if (!rawModelResponse || !rawModelResponse.trim()) {
-                    console.log(`    No content from batch model on attempt ${attempt}.`);
+                    console.log(`    No content from model on attempt ${attempt}.`);
                     if (attempt < config.MAX_RETRIES_SENTENCE) {
                         await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
                         continue;
                     } else {
-                        for (const lineData of batchLines) {
-                            this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse, null, config.ERROR_LOG_FILE_SENTENCES);
-                            this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse);
-                            results.push(false);
-                        }
-                        return results;
+                        this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse, null, config.ERROR_LOG_FILE_SENTENCES);
+                        this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse);
+                        return false;
                     }
                 }
 
-                this.modelClient.logSuccessfulResponse(batchLines, rawModelResponse, config.SUCCESSFUL_RAW_MODEL_RESPONSE_LOG_SENTENCES);
+                this.modelClient.logSuccessfulResponse([lineData], rawModelResponse, config.SUCCESSFUL_RAW_MODEL_RESPONSE_LOG_SENTENCES);
 
-                const responseLines = rawModelResponse.split('\n').filter(line => line.trim());
+                const [germanAnnotated, englishAnnotated, parseErrors] = this.textProcessor.parseTranslationResponse(rawModelResponse);
                 
-                for (let i = 0; i < batchLines.length; i++) {
-                    const lineData = batchLines[i];
-                    const responseLine = responseLines[i] || null;
-                    
-                    if (!responseLine) {
-                        this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No response for this line in batch", rawModelResponse, null, config.ERROR_LOG_FILE_SENTENCES);
-                        this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No response for this line in batch", rawModelResponse);
-                        results.push(false);
-                        continue;
-                    }
-
-                    const [germanAnnotated, englishAnnotated, parseErrors] = this.textProcessor.parseTranslationResponse(responseLine);
-                    
-                    if (germanAnnotated !== null && englishAnnotated !== null) {
-                        this.sqlGenerator.addSuccessfulLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, germanAnnotated, englishAnnotated, parseErrors);
-                        console.log(`    Successfully processed C${lineData.chapter_id}_S${lineData.line_number}.`);
-                        results.push(true);
-                    } else {
-                        this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response", responseLine, parseErrors, config.ERROR_LOG_FILE_SENTENCES);
-                        this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), responseLine);
-                        results.push(false);
-                    }
+                if (germanAnnotated !== null && englishAnnotated !== null) {
+                    this.sqlGenerator.addSuccessfulLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, germanAnnotated, englishAnnotated, parseErrors);
+                    console.log(`    Successfully processed C${lineData.chapter_id}_S${lineData.line_number}.`);
+                    return true;
+                } else {
+                    this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response", rawModelResponse, parseErrors, config.ERROR_LOG_FILE_SENTENCES);
+                    this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), rawModelResponse);
+                    return false;
                 }
-                
-                return results;
                 
             } catch (error) {
-                console.log(`    Unexpected error processing batch on attempt ${attempt}: ${error.message}`);
+                console.log(`    Unexpected error processing line on attempt ${attempt}: ${error.message}`);
                 if (attempt < config.MAX_RETRIES_SENTENCE) {
                     await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
                 } else {
-                    for (const lineData of batchLines) {
-                        this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "", [], config.ERROR_LOG_FILE_SENTENCES);
-                        this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "");
-                        results.push(false);
-                    }
-                    return results;
+                    this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "", [], config.ERROR_LOG_FILE_SENTENCES);
+                    this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "");
+                    return false;
                 }
             }
         }
         
-        return results;
+        return false;
     }
 
     saveProgress() {
         this.sqlGenerator.saveToFile(config.SQL_OUTPUT_FILE_SENTENCES);
     }
 
-    async processFile(filePath = null, batchSize = null) {
+    async processFile(filePath = null) {
         const textPath = filePath || config.TEXT_FILE_PATH;
-        const processingBatchSize = batchSize || config.BATCH_SIZE;
         
         this.isProcessing = true;
         await this.initialize();
@@ -123,26 +98,24 @@ class SentenceProcessor {
             let successfulLines = 0;
             let failedLinesCount = 0;
 
-            for (let i = 0; i < allLineData.length && this.isProcessing; i += processingBatchSize) {
-                const batch = allLineData.slice(i, i + processingBatchSize);
-                console.log(`\n--- Processing Batch ${Math.floor(i / processingBatchSize) + 1} (lines ${i + 1}-${Math.min(i + processingBatchSize, allLineData.length)}) ---`);
+            for (let i = 0; i < allLineData.length && this.isProcessing; i++) {
+                const lineData = allLineData[i];
+                console.log(`\n--- Processing Line ${i + 1}/${allLineData.length} ---`);
                 
-                const batchResults = await this.processBatchLines(batch);
+                const result = await this.processSingleLine(lineData);
                 
-                for (const result of batchResults) {
-                    if (result) {
-                        successfulLines++;
-                    } else {
-                        failedLinesCount++;
-                    }
+                if (result) {
+                    successfulLines++;
+                } else {
+                    failedLinesCount++;
                 }
                 
-                if ((Math.floor(i / processingBatchSize) + 1) % 5 === 0) {
+                if ((i + 1) % 50 === 0) {
                     this.saveProgress();
-                    console.log(`Saved progress after ${Math.floor(i / processingBatchSize) + 1} batches`);
+                    console.log(`Saved progress after ${i + 1} lines`);
                 }
                 
-                if (i + processingBatchSize < allLineData.length && this.isProcessing) {
+                if (i + 1 < allLineData.length && this.isProcessing) {
                     console.log(`Pausing for ${config.RETRY_DELAY_SECONDS_SENTENCE / 2}ms...`);
                     await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE / 2);
                 }
@@ -185,9 +158,9 @@ async function main() {
 }
 
 // Export for use as module
-module.exports = SentenceProcessor;
+export default SentenceProcessor;
 
 // Run the main function if called directly
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
     main().catch(console.error);
 }
