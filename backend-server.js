@@ -623,34 +623,53 @@ async function processBatch(filePath, projectId, gcsInputBucket, gcsOutputBucket
         processingState.status = 'submitting_batch';
         addLog('Submitting to Vertex AI Batch...');
         
-        await runCommand('node', ['batchProcessor.js'], (data) => {
-            const output = data.toString().trim();
-            addLog(output);
-            
-            // Extract job name if present
-            const jobMatch = output.match(/Job name: (.+)/);
-            if (jobMatch) {
-                processingState.jobName = jobMatch[1];
-            }
-        });
-        
-        processingState.status = 'batch_running';
-        addLog('Batch job submitted successfully. Monitoring progress...');
-        
-        // Simulate batch completion (in real implementation, you'd poll Vertex AI)
-        setTimeout(() => {
-            if (processingState.isRunning) {
-                processingState.status = 'completed';
-                processingState.totalLines = 50; // Would get from actual results
-                processingState.processedLines = processingState.totalLines;
-                processingState.successfulLines = Math.floor(processingState.totalLines * 0.9);
-                processingState.failedLines = processingState.totalLines - processingState.successfulLines;
-                processingState.isRunning = false;
+        let batchResults = null;
+        try {
+            await runCommand('node', ['batchProcessor.js', filePath], (data) => {
+                const output = data.toString().trim();
+                addLog(output);
                 
-                addLog('Batch processing completed successfully!');
-                addLog(`Results: ${processingState.successfulLines} successful, ${processingState.failedLines} failed`);
-            }
-        }, 10000); // 10 second delay for demo
+                // Extract batch results if present
+                const resultsMatch = output.match(/BATCH_RESULTS: (.+)/);
+                if (resultsMatch) {
+                    try {
+                        batchResults = JSON.parse(resultsMatch[1]);
+                        addLog(`✅ Parsed batch results: ${batchResults.totalChapters} chapters, ${batchResults.totalLines} lines`);
+                    } catch (e) {
+                        addLog(`❌ Failed to parse batch results: ${e.message}`, 'error');
+                    }
+                }
+            });
+        } catch (commandError) {
+            addLog(`⚠️ Batch processor command failed: ${commandError.message}`, 'error');
+            addLog('This might be due to timeout or other execution issues');
+        }
+        
+        processingState.status = 'completed';
+        
+        if (batchResults) {
+            // Use real results from batch processing
+            processingState.totalLines = batchResults.totalLines;
+            processingState.processedLines = batchResults.totalLines;
+            processingState.successfulLines = batchResults.successfulLines;
+            processingState.failedLines = batchResults.failedLines;
+            processingState.totalChapters = batchResults.totalChapters;
+            processingState.successfulChapters = batchResults.successfulChapters;
+            processingState.failedChapters = batchResults.failedChapters;
+            
+            addLog('Batch processing completed successfully!');
+            addLog(`Results: ${batchResults.successfulChapters}/${batchResults.totalChapters} chapters successful`);
+            addLog(`Lines: ${batchResults.successfulLines}/${batchResults.totalLines} successful`);
+            addLog(`SQL output: ${batchResults.sqlFile}`);
+            addLog(`Error log: ${batchResults.errorLog}`);
+        } else {
+            // Fallback if results parsing failed
+            addLog('Batch processing completed but could not parse results', 'warn');
+            processingState.totalLines = 0;
+            processingState.processedLines = 0;
+            processingState.successfulLines = 0;
+            processingState.failedLines = 0;
+        }
         
     } catch (error) {
         addLog(`Error during batch processing: ${error.message}`, 'error');
