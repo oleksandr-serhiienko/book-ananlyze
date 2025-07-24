@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import config from './config.js';
 import TextProcessor from './textProcessor.js';
 import SQLGenerator from './sqlGenerator.js';
@@ -10,14 +11,25 @@ class SentenceProcessor {
         this.sqlGenerator = new SQLGenerator();
         this.modelClient = new ModelClient(config);
         this.isProcessing = false;
+        
+        // Create timestamped file paths
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        this.errorLogFile = `logs/errors/sentence_errors_${timestamp}.log`;
+        this.successLogFile = `logs/responses/sentence_responses_${timestamp}.txt`;
+        this.sqlOutputFile = `logs/sql/sentence_results_${timestamp}.sql`;
     }
 
     async initialize() {
+        // Ensure directories exist
+        fs.mkdirSync('logs/errors', { recursive: true });
+        fs.mkdirSync('logs/responses', { recursive: true });
+        fs.mkdirSync('logs/sql', { recursive: true });
+        
         this.sqlGenerator.initializeSchema();
         
         // Initialize log files
-        fs.writeFileSync(config.ERROR_LOG_FILE_SENTENCES, `Line Processing Error Log - Run: ${new Date().toString()}\n${"=".repeat(40)}\n`, 'utf8');
-        fs.writeFileSync(config.SUCCESSFUL_RAW_MODEL_RESPONSE_LOG_SENTENCES, `# Raw Model Responses (Lines) - Run: ${new Date().toString()}\n`, 'utf8');
+        fs.writeFileSync(this.errorLogFile, `Line Processing Error Log - Run: ${new Date().toString()}\n${"=".repeat(40)}\n`, 'utf8');
+        fs.writeFileSync(this.successLogFile, `# Raw Model Responses (Lines) - Run: ${new Date().toString()}\n`, 'utf8');
     }
 
     stop() {
@@ -37,13 +49,13 @@ class SentenceProcessor {
                         await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
                         continue;
                     } else {
-                        this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse, null, config.ERROR_LOG_FILE_SENTENCES);
+                        this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse, null, this.errorLogFile);
                         this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse);
                         return false;
                     }
                 }
 
-                this.modelClient.logSuccessfulResponse([lineData], rawModelResponse, config.SUCCESSFUL_RAW_MODEL_RESPONSE_LOG_SENTENCES);
+                this.modelClient.logSuccessfulResponse([lineData], rawModelResponse, this.successLogFile);
 
                 const [germanAnnotated, englishAnnotated, parseErrors] = this.textProcessor.parseTranslationResponse(rawModelResponse);
                 
@@ -52,7 +64,7 @@ class SentenceProcessor {
                     console.log(`    Successfully processed C${lineData.chapter_id}_S${lineData.line_number}.`);
                     return true;
                 } else {
-                    this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response", rawModelResponse, parseErrors, config.ERROR_LOG_FILE_SENTENCES);
+                    this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response", rawModelResponse, parseErrors, this.errorLogFile);
                     this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), rawModelResponse);
                     return false;
                 }
@@ -62,7 +74,7 @@ class SentenceProcessor {
                 if (attempt < config.MAX_RETRIES_SENTENCE) {
                     await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
                 } else {
-                    this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "", [], config.ERROR_LOG_FILE_SENTENCES);
+                    this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "", [], this.errorLogFile);
                     this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "");
                     return false;
                 }
@@ -73,7 +85,7 @@ class SentenceProcessor {
     }
 
     saveProgress() {
-        this.sqlGenerator.saveToFile(config.SQL_OUTPUT_FILE_SENTENCES);
+        this.sqlGenerator.saveToFile(this.sqlOutputFile);
     }
 
     async processFile(filePath = null) {
@@ -115,10 +127,6 @@ class SentenceProcessor {
                     console.log(`Saved progress after ${i + 1} lines`);
                 }
                 
-                if (i + 1 < allLineData.length && this.isProcessing) {
-                    console.log(`Pausing for ${config.RETRY_DELAY_SECONDS_SENTENCE / 2}ms...`);
-                    await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE / 2);
-                }
             }
 
             console.log(`\n--- Line Processing Summary ---`);
@@ -128,9 +136,9 @@ class SentenceProcessor {
             }
             
             this.saveProgress();
-            console.log(`\nSQL for 'book_sentences' saved to ${config.SQL_OUTPUT_FILE_SENTENCES}`);
-            console.log(`Line error log: ${config.ERROR_LOG_FILE_SENTENCES}`);
-            console.log(`Successful raw line responses log: ${config.SUCCESSFUL_RAW_MODEL_RESPONSE_LOG_SENTENCES}`);
+            console.log(`\nSQL for 'book_sentences' saved to ${this.sqlOutputFile}`);
+            console.log(`Line error log: ${this.errorLogFile}`);
+            console.log(`Successful raw line responses log: ${this.successLogFile}`);
             console.log("Line script finished.");
             
             this.isProcessing = false;
@@ -143,7 +151,7 @@ class SentenceProcessor {
             
         } catch (error) {
             console.log(`\nCRITICAL SCRIPT ERROR (line processing): ${error.message}`);
-            this.modelClient.logError(0, 0, "CRITICAL SCRIPT ERROR", error.message, "", [], config.ERROR_LOG_FILE_SENTENCES);
+            this.modelClient.logError(0, 0, "CRITICAL SCRIPT ERROR", error.message, "", [], this.errorLogFile);
             this.saveProgress();
             this.isProcessing = false;
             return { success: false, error: error.message };

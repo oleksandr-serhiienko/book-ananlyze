@@ -21,16 +21,9 @@
                 </div>
                 
                 <div class="input-group">
-                    <label for="processingMode">Processing Mode:</label>
-                    <select id="processingMode">
-                        <option value="sentence">Sentence by Sentence</option>
-                        <option value="batch">Batch Processing</option>
-                    </select>
-                </div>
-                
-                <div class="input-group" id="batchSizeGroup">
-                    <label for="batchInfo">Batch Processing:</label>
-                    <span id="batchInfo" style="color: #4a5568; font-style: italic;">Batch size will be set automatically based on detected chapters</span>
+                    <label>Processing Mode:</label>
+                    <span style="color: #2d3748; font-weight: 500;">Sentence by Sentence</span>
+                    <p style="color: #4a5568; font-size: 0.9em; margin: 5px 0 0 0;">Each sentence is processed individually for maximum accuracy</p>
                 </div>
                 
                 <!-- Shared AI Configuration -->
@@ -54,20 +47,6 @@
                     </div>
                 </div>
                 
-                <!-- Batch-specific Configuration (only shown when batch mode is selected) -->
-                <div class="input-group" id="batchConfigGroup" style="display: none;">
-                    <h3 style="color: #4a5568; margin-bottom: 15px;">Batch Processing Storage</h3>
-                    <div style="background: #f0fff4; padding: 15px; border-radius: 8px;">
-                        <div>
-                            <label for="gcsInputBucket">Input Bucket (where processed files are stored):</label>
-                            <input type="text" id="gcsInputBucket" value="gs://vertex-batch-188935312243/input/" style="width: 100%;">
-                        </div>
-                        <div style="margin-top: 10px;">
-                            <label for="gcsOutputBucket">Output Bucket (where results are saved):</label>
-                            <input type="text" id="gcsOutputBucket" value="gs://vertex-batch-188935312243/output/" style="width: 100%;">
-                        </div>
-                    </div>
-                </div>
 
                 <div class="button-group">
                     <button id="startProcessing" class="btn-primary">Start Processing</button>

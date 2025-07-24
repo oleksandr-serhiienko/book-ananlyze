@@ -1,2 +1,14 @@
 node_modules/
 .claude/
+
+# Log files and processing results
+logs/
+*.log
+*.sql
+*_errors_*.log
+*_responses_*.txt
+*_results_*.sql
+sentence_errors_*.log
+sentence_responses_*.txt
+sentence_results_*.sql
+temp_bundles.jsonl

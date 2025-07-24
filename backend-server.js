@@ -418,11 +418,16 @@ async function processChapters(chapters, filePath) {
     addLog(`Starting ${functionName} with ${chapters.length} chapters using real AI processing`);
     
     try {
+        // Ensure directories exist
+        fs.mkdirSync('logs/errors', { recursive: true });
+        fs.mkdirSync('logs/responses', { recursive: true });
+        fs.mkdirSync('logs/sql', { recursive: true });
+        
         // Initialize SQL generator for this session
         sqlGenerator.initializeSchema();
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const errorLogFile = `sentence_processing_errors_${timestamp}.log`;
-        const successLogFile = `sentence_model_responses_raw_${timestamp}.txt`;
+        const errorLogFile = `logs/errors/sentence_processing_errors_${timestamp}.log`;
+        const successLogFile = `logs/responses/sentence_model_responses_raw_${timestamp}.txt`;
         
         // Initialize log files
         fs.writeFileSync(errorLogFile, `Chapter Processing Error Log - Run: ${new Date().toString()}\n${"=".repeat(40)}\n`, 'utf8');
@@ -480,16 +485,11 @@ async function processChapters(chapters, filePath) {
                 
                 // Save progress periodically
                 if (chapterNumber % 2 === 0 || chapterNumber === chapters.length) {
-                    const sqlFile = `book_sentences_progress_${timestamp}.sql`;
+                    const sqlFile = `logs/sql/book_sentences_progress_${timestamp}.sql`;
                     sqlGenerator.saveToFile(sqlFile);
                     addLog(`Progress saved to ${sqlFile} after Chapter ${chapterNumber}`);
                 }
                 
-                // Add delay between chapters to avoid rate limiting
-                if (i + 1 < chapters.length && processingState.isRunning) {
-                    addLog(`Pausing for ${config.RETRY_DELAY_SECONDS_SENTENCE / 2}ms before next chapter...`);
-                    await new Promise(resolve => setTimeout(resolve, config.RETRY_DELAY_SECONDS_SENTENCE / 2));
-                }
                 
             } catch (chapterError) {
                 const chapterNumber = i + 1;
@@ -597,11 +597,6 @@ async function processBatchLinesWithAI(lineDataArray, chapterNumber, errorLogFil
             }
         }
         
-        // Add small delay between lines
-        if (i + 1 < lineDataArray.length) {
-            addLog(`    Pausing for ${config.RETRY_DELAY_SECONDS_SENTENCE / 2}ms...`);
-            await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE / 2);
-        }
     }
     
     return results;
@@ -625,23 +620,27 @@ async function processBatch(filePath, projectId, gcsInputBucket, gcsOutputBucket
         
         let batchResults = null;
         try {
-            await runCommand('node', ['batchProcessor.js', filePath], (data) => {
+            await runCommand('node', ['sentenceProcessor.js', filePath], (data) => {
                 const output = data.toString().trim();
                 addLog(output);
                 
-                // Extract batch results if present
-                const resultsMatch = output.match(/BATCH_RESULTS: (.+)/);
+                // Extract sentence processing results if present
+                const resultsMatch = output.match(/Processing result: (.+)/);
                 if (resultsMatch) {
                     try {
                         batchResults = JSON.parse(resultsMatch[1]);
-                        addLog(`✅ Parsed batch results: ${batchResults.totalChapters} chapters, ${batchResults.totalLines} lines`);
+                        if (batchResults.success) {
+                            addLog(`✅ Sentence processing completed: ${batchResults.successfulLines}/${batchResults.totalLines} sentences successful`);
+                        } else {
+                            addLog(`❌ Sentence processing failed: ${batchResults.error}`, 'error');
+                        }
                     } catch (e) {
-                        addLog(`❌ Failed to parse batch results: ${e.message}`, 'error');
+                        addLog(`❌ Failed to parse processing results: ${e.message}`, 'error');
                     }
                 }
             });
         } catch (commandError) {
-            addLog(`⚠️ Batch processor command failed: ${commandError.message}`, 'error');
+            addLog(`⚠️ Sentence processor command failed: ${commandError.message}`, 'error');
             addLog('This might be due to timeout or other execution issues');
         }
         

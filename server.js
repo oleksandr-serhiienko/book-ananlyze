@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { BatchProcessor } from './batchProcessor.js';
+import SentenceProcessor from './sentenceProcessor.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,80 +10,69 @@ const app = express();
 app.use(express.json());
 app.use(express.static(__dirname));
 
-let currentBatchProcessor = null;
+let currentSentenceProcessor = null;
 let currentJobStatus = {
     isRunning: false,
-    jobName: null,
     status: 'idle',
     progress: 0,
     logs: []
 };
 
-app.post('/api/batch/start', async (req, res) => {
+app.post('/api/sentence/start', async (req, res) => {
     try {
-        const { filePath, projectId, gcsInputBucket, gcsOutputBucket } = req.body;
+        const { filePath } = req.body;
         
         if (currentJobStatus.isRunning) {
-            return res.status(400).json({ error: 'Batch job already running' });
+            return res.status(400).json({ error: 'Sentence processing already running' });
         }
 
-        currentBatchProcessor = new BatchProcessor(projectId);
+        currentSentenceProcessor = new SentenceProcessor();
         currentJobStatus = {
             isRunning: true,
-            jobName: null,
             status: 'starting',
             progress: 0,
-            logs: [`Starting batch processing for ${filePath}`]
+            logs: [`Starting sentence processing for ${filePath}`]
         };
 
-        // Run batch processing asynchronously
-        processBatchAsync(filePath, gcsInputBucket, gcsOutputBucket);
+        // Run sentence processing asynchronously
+        processSentencesAsync(filePath);
         
-        res.json({ message: 'Batch processing started', status: currentJobStatus });
+        res.json({ message: 'Sentence processing started', status: currentJobStatus });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-app.get('/api/batch/status', (req, res) => {
+app.get('/api/sentence/status', (req, res) => {
     res.json(currentJobStatus);
 });
 
-app.post('/api/batch/stop', (req, res) => {
+app.post('/api/sentence/stop', (req, res) => {
+    if (currentSentenceProcessor) {
+        currentSentenceProcessor.stop();
+    }
     currentJobStatus.isRunning = false;
     currentJobStatus.status = 'stopped';
-    res.json({ message: 'Batch processing stopped' });
+    res.json({ message: 'Sentence processing stopped' });
 });
 
-async function processBatchAsync(filePath, gcsInputBucket, gcsOutputBucket) {
+async function processSentencesAsync(filePath) {
     try {
-        currentJobStatus.logs.push('Creating bundles from text file...');
+        currentJobStatus.logs.push('Starting sentence-by-sentence processing...');
+        currentJobStatus.status = 'processing';
         
-        // Create bundles
-        const bundlesPath = `${gcsInputBucket}bundles.jsonl`;
-        const chapterCount = await currentBatchProcessor.createBundles(filePath, 'temp_bundles.jsonl');
+        const result = await currentSentenceProcessor.processFile(filePath);
         
-        currentJobStatus.logs.push(`✅ Created ${chapterCount} bundles`);
-        currentJobStatus.status = 'submitting';
-        
-        // Submit job
-        const job = await currentBatchProcessor.submitBatchJob(bundlesPath, gcsOutputBucket);
-        currentJobStatus.jobName = job.name;
-        currentJobStatus.logs.push(`✅ Job submitted: ${job.name}`);
-        currentJobStatus.status = 'polling';
-        
-        // Poll status
-        const finalJob = await currentBatchProcessor.pollJobStatus(job.name, (state, jobInfo) => {
-            if (currentJobStatus.isRunning) {
-                currentJobStatus.status = state.toLowerCase();
-                currentJobStatus.logs.push(`Job status: ${state}`);
-            }
-        });
-        
-        currentJobStatus.status = finalJob.state.toLowerCase();
-        currentJobStatus.progress = 100;
-        currentJobStatus.isRunning = false;
-        currentJobStatus.logs.push(`✅ Batch processing completed with status: ${finalJob.state}`);
+        if (result.success) {
+            currentJobStatus.status = 'completed';
+            currentJobStatus.progress = 100;
+            currentJobStatus.isRunning = false;
+            currentJobStatus.logs.push(`✅ Processing completed: ${result.successfulLines}/${result.totalLines} sentences successful`);
+        } else {
+            currentJobStatus.status = 'error';
+            currentJobStatus.isRunning = false;
+            currentJobStatus.logs.push(`❌ Processing failed: ${result.error}`);
+        }
         
     } catch (error) {
         currentJobStatus.status = 'error';

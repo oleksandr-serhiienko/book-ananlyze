@@ -50,47 +50,6 @@ Return one JSON object:`;
         }
     }
 
-    async getBatchTranslation(batchLines) {
-        const numberedLines = batchLines.map((line, index) => 
-            `${index + 1}. ${line.original_text}`
-        ).join('\n');
-        
-        const prompt = `Translate the following German text to English. Return one JSON object per line in this exact format: {"original": "German text", "translated": "English text"}
-
-German text to translate:
-${numberedLines}
-
-Return ${batchLines.length} JSON objects, one per line, in the same order:`;
-        
-        try {
-            const chat = this.ai.chats.create({
-                model: this.model,
-                config: this.generationConfig
-            });
-
-            const message = { text: prompt };
-            const response = await chat.sendMessage({ message: [message] });
-            
-            // Handle streaming response
-            let fullResponse = '';
-            if (response.text) {
-                fullResponse = response.text;
-            } else {
-                // Handle stream if needed
-                for await (const chunk of response) {
-                    if (chunk.text) {
-                        fullResponse += chunk.text;
-                    }
-                }
-            }
-            
-            return fullResponse;
-            
-        } catch (error) {
-            throw error;
-        }
-    }
-
     logSuccessfulResponse(lineDataArray, rawResponse, logFile) {
         const logEntry = {
             line_count: lineDataArray.length,

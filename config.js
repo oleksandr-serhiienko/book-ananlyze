@@ -4,10 +4,10 @@ export default {
     RETRY_DELAY_SECONDS_SENTENCE: 10000, // milliseconds
     // BATCH_SIZE: 10, // Removed - now processing sentences one by one
 
-    // File Paths
-    SQL_OUTPUT_FILE_SENTENCES: 'book_sentences_inserts.sql',
-    ERROR_LOG_FILE_SENTENCES: 'sentence_processing_errors.log',
-    SUCCESSFUL_RAW_MODEL_RESPONSE_LOG_SENTENCES: 'sentence_model_responses_raw.txt',
+    // File Paths (organized in folders)
+    SQL_OUTPUT_FILE_SENTENCES: 'logs/sql/book_sentences_inserts.sql',
+    ERROR_LOG_FILE_SENTENCES: 'logs/errors/sentence_processing_errors.log',
+    SUCCESSFUL_RAW_MODEL_RESPONSE_LOG_SENTENCES: 'logs/responses/sentence_model_responses_raw.txt',
     TEXT_FILE_PATH: "C:\\Dev\\Application\\book-prepare\\third_book_all_chapters.txt",
 
     // Google GenAI Configuration
