@@ -525,80 +525,98 @@ async function processChapters(chapters, filePath) {
 }
 
 async function processBatchLinesWithAI(lineDataArray, chapterNumber, errorLogFile, successLogFile) {
-    const results = [];
+    addLog(`Processing chapter ${chapterNumber} with ${lineDataArray.length} lines using ${config.CONCURRENT_WORKERS} concurrent workers`);
     
-    addLog(`Processing chapter ${chapterNumber} with ${lineDataArray.length} lines (one by one)`);
+    const results = new Array(lineDataArray.length).fill(null);
+    const workers = [];
+    let queueIndex = 0;
     
-    // Process lines one by one
-    for (let i = 0; i < lineDataArray.length; i++) {
-        const lineData = lineDataArray[i];
+    // Worker function for concurrent processing
+    const processWorker = async (workerId) => {
+        addLog(`Worker ${workerId} started for chapter ${chapterNumber}`);
         
-        addLog(`  Processing line ${i + 1}/${lineDataArray.length} of chapter ${chapterNumber}`);
-        
-        for (let attempt = 1; attempt <= config.MAX_RETRIES_SENTENCE; attempt++) {
-            try {
-                addLog(`    Attempt ${attempt}/${config.MAX_RETRIES_SENTENCE} for C${lineData.chapter_id}_L${lineData.line_number}`);
-                addLog(`    Sending line to AI model...`);
-                
-                // Call the single translation method
-                const rawModelResponse = await modelClient.getSingleTranslation(lineData);
-                
-                addLog(`    Raw AI response received: ${rawModelResponse ? rawModelResponse.length : 0} characters`);
-                
-                if (!rawModelResponse || !rawModelResponse.trim()) {
-                    addLog(`    No content from model on attempt ${attempt}`, 'error');
-                    if (attempt < config.MAX_RETRIES_SENTENCE) {
-                        await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
-                        continue;
+        while (queueIndex < lineDataArray.length && processingState.isRunning) {
+            const currentIndex = queueIndex++;
+            if (currentIndex >= lineDataArray.length) break;
+            
+            const lineData = lineDataArray[currentIndex];
+            addLog(`Worker ${workerId}: Processing line ${currentIndex + 1}/${lineDataArray.length} of chapter ${chapterNumber}`);
+            
+            let success = false;
+            
+            for (let attempt = 1; attempt <= config.MAX_RETRIES_SENTENCE; attempt++) {
+                try {
+                    addLog(`    Worker ${workerId} - Attempt ${attempt}/${config.MAX_RETRIES_SENTENCE} for C${lineData.chapter_id}_L${lineData.line_number}`);
+                    
+                    const rawModelResponse = await modelClient.getSingleTranslation(lineData);
+                    
+                    if (!rawModelResponse || !rawModelResponse.trim()) {
+                        addLog(`    Worker ${workerId} - No content from model on attempt ${attempt}`, 'error');
+                        if (attempt < config.MAX_RETRIES_SENTENCE) {
+                            await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
+                            continue;
+                        } else {
+                            modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse, null, errorLogFile);
+                            sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse);
+                            break;
+                        }
+                    }
+                    
+                    // Log successful response
+                    modelClient.logSuccessfulResponse([lineData], rawModelResponse, successLogFile);
+                    addLog(`    Worker ${workerId} - ✓ Received AI response for C${lineData.chapter_id}_L${lineData.line_number}`);
+                    
+                    // Parse the response
+                    const [germanAnnotated, englishAnnotated, parseErrors] = textProcessor.parseTranslationResponse(rawModelResponse);
+                    
+                    if (germanAnnotated !== null && englishAnnotated !== null) {
+                        sqlGenerator.addSuccessfulLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, germanAnnotated, englishAnnotated, parseErrors);
+                        addLog(`    Worker ${workerId} - ✓ Successfully processed C${lineData.chapter_id}_L${lineData.line_number}`);
+                        success = true;
                     } else {
-                        modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse, null, errorLogFile);
-                        sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse);
-                        results.push(false);
-                        break;
+                        addLog(`    Worker ${workerId} - ✗ Failed to parse C${lineData.chapter_id}_L${lineData.line_number}: ${parseErrors.join('; ')}`, 'error');
+                        modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response", rawModelResponse, parseErrors, errorLogFile);
+                        sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), rawModelResponse);
+                    }
+                    
+                    break; // Exit retry loop
+                    
+                } catch (error) {
+                    addLog(`    Worker ${workerId} - ✗ Error processing C${lineData.chapter_id}_L${lineData.line_number} on attempt ${attempt}`, 'error');
+                    addLog(`    Worker ${workerId} - Error details: ${error.message}`);
+                    
+                    if (attempt < config.MAX_RETRIES_SENTENCE) {
+                        addLog(`    Worker ${workerId} - Retrying in ${config.RETRY_DELAY_SECONDS_SENTENCE}ms...`);
+                        await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
+                    } else {
+                        modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "", [], errorLogFile);
+                        sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "");
                     }
                 }
-                
-                // Log successful response
-                modelClient.logSuccessfulResponse([lineData], rawModelResponse, successLogFile);
-                addLog(`    ✓ Received AI response for C${lineData.chapter_id}_L${lineData.line_number} (${rawModelResponse.length} characters)`);
-                
-                // Parse the individual line response
-                const [germanAnnotated, englishAnnotated, parseErrors] = textProcessor.parseTranslationResponse(rawModelResponse);
-                
-                if (germanAnnotated !== null && englishAnnotated !== null) {
-                    sqlGenerator.addSuccessfulLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, germanAnnotated, englishAnnotated, parseErrors);
-                    addLog(`    ✓ Successfully processed C${lineData.chapter_id}_L${lineData.line_number}`);
-                    results.push(true);
-                } else {
-                    addLog(`    ✗ Failed to parse C${lineData.chapter_id}_L${lineData.line_number}: ${parseErrors.join('; ')}`, 'error');
-                    modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response", rawModelResponse, parseErrors, errorLogFile);
-                    sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), rawModelResponse);
-                    results.push(false);
-                }
-                
-                // Success - break out of retry loop
-                break;
-                
-            } catch (error) {
-                addLog(`    ✗ Error processing C${lineData.chapter_id}_L${lineData.line_number} on attempt ${attempt}`, 'error', error);
-                addLog(`    Error details: ${error.message}`);
-                if (error.stack) {
-                    addLog(`    Stack trace: ${error.stack.split('\n').slice(0, 3).join('; ')}`);
-                }
-                
-                if (attempt < config.MAX_RETRIES_SENTENCE) {
-                    addLog(`    Retrying in ${config.RETRY_DELAY_SECONDS_SENTENCE}ms...`);
-                    await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
-                } else {
-                    modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "", [], errorLogFile);
-                    sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "");
-                    results.push(false);
-                }
+            }
+            
+            results[currentIndex] = success;
+            
+            // Rate limiting delay
+            if (queueIndex < lineDataArray.length) {
+                await modelClient.delay(config.RATE_LIMIT_DELAY);
             }
         }
         
+        addLog(`Worker ${workerId} finished for chapter ${chapterNumber}`);
+    };
+    
+    // Start workers
+    for (let i = 0; i < config.CONCURRENT_WORKERS; i++) {
+        workers.push(processWorker(i + 1));
+        // Stagger worker starts
+        await modelClient.delay(config.RATE_LIMIT_DELAY);
     }
     
+    // Wait for all workers to complete
+    await Promise.all(workers);
+    
+    addLog(`Chapter ${chapterNumber} concurrent processing completed`);
     return results;
 }
 

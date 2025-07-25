@@ -88,6 +88,77 @@ class SentenceProcessor {
         this.sqlGenerator.saveToFile(this.sqlOutputFile);
     }
 
+    async processConcurrent(allLineData) {
+        const results = {
+            successfulLines: 0,
+            failedLines: 0,
+            processed: 0
+        };
+
+        const workers = [];
+        const queue = [...allLineData];
+        let activeWorkers = 0;
+
+        console.log(`Starting concurrent processing with ${config.CONCURRENT_WORKERS} workers for ${queue.length} sentences`);
+
+        // Create worker function
+        const processWorker = async (workerId) => {
+            activeWorkers++;
+            console.log(`Worker ${workerId} started`);
+
+            while (queue.length > 0 && this.isProcessing) {
+                const lineData = queue.shift();
+                if (!lineData) break;
+
+                try {
+                    console.log(`Worker ${workerId}: Processing C${lineData.chapter_id}_L${lineData.line_number} (${results.processed + 1}/${allLineData.length})`);
+                    
+                    const success = await this.processSingleLine(lineData);
+                    
+                    if (success) {
+                        results.successfulLines++;
+                    } else {
+                        results.failedLines++;
+                    }
+                    
+                    results.processed++;
+
+                    // Save progress periodically
+                    if (results.processed % 20 === 0) {
+                        this.saveProgress();
+                        console.log(`Progress saved after ${results.processed} lines`);
+                    }
+
+                    // Small delay to prevent overwhelming the API
+                    if (queue.length > 0) {
+                        await this.modelClient.delay(config.RATE_LIMIT_DELAY);
+                    }
+
+                } catch (error) {
+                    console.log(`Worker ${workerId}: Error processing line: ${error.message}`);
+                    results.failedLines++;
+                    results.processed++;
+                }
+            }
+
+            activeWorkers--;
+            console.log(`Worker ${workerId} finished`);
+        };
+
+        // Start workers
+        for (let i = 0; i < config.CONCURRENT_WORKERS; i++) {
+            workers.push(processWorker(i + 1));
+            // Stagger worker starts to avoid initial rush
+            await this.modelClient.delay(config.RATE_LIMIT_DELAY);
+        }
+
+        // Wait for all workers to complete
+        await Promise.all(workers);
+
+        console.log(`Concurrent processing completed: ${results.successfulLines} successful, ${results.failedLines} failed`);
+        return results;
+    }
+
     async processFile(filePath = null) {
         const textPath = filePath || config.TEXT_FILE_PATH;
         
@@ -107,27 +178,10 @@ class SentenceProcessor {
         try {
             console.log("Vertex AI Client initialized.");
             
-            let successfulLines = 0;
-            let failedLinesCount = 0;
-
-            for (let i = 0; i < allLineData.length && this.isProcessing; i++) {
-                const lineData = allLineData[i];
-                console.log(`\n--- Processing Line ${i + 1}/${allLineData.length} ---`);
-                
-                const result = await this.processSingleLine(lineData);
-                
-                if (result) {
-                    successfulLines++;
-                } else {
-                    failedLinesCount++;
-                }
-                
-                if ((i + 1) % 50 === 0) {
-                    this.saveProgress();
-                    console.log(`Saved progress after ${i + 1} lines`);
-                }
-                
-            }
+            // Use concurrent processing
+            const results = await this.processConcurrent(allLineData);
+            const successfulLines = results.successfulLines;
+            const failedLinesCount = results.failedLines;
 
             console.log(`\n--- Line Processing Summary ---`);
             console.log(`Successfully processed and generated SQL for ${successfulLines} lines.`);

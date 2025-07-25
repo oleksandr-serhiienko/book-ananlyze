@@ -2,7 +2,11 @@ export default {
     // Processing Configuration
     MAX_RETRIES_SENTENCE: 3,
     RETRY_DELAY_SECONDS_SENTENCE: 10000, // milliseconds
-    // BATCH_SIZE: 10, // Removed - now processing sentences one by one
+    
+    // Concurrent Processing Configuration
+    CONCURRENT_WORKERS: 5, // Number of parallel requests
+    RATE_LIMIT_DELAY: 100, // Milliseconds between starting new requests
+    MAX_QUEUE_SIZE: 50, // Maximum sentences in processing queue
 
     // File Paths (organized in folders)
     SQL_OUTPUT_FILE_SENTENCES: 'logs/sql/book_sentences_inserts.sql',
