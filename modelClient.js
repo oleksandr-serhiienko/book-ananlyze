@@ -11,12 +11,19 @@ class ModelClient {
         });
         this.model = config.MODEL_ENDPOINT;
         this.generationConfig = config.GENERATION_CONFIG;
+        this.sourceLanguage = config.DEFAULT_SOURCE_LANGUAGE || 'German';
+        this.targetLanguage = config.DEFAULT_TARGET_LANGUAGE || 'English';
+    }
+
+    setLanguagePair(sourceLanguage, targetLanguage) {
+        this.sourceLanguage = sourceLanguage;
+        this.targetLanguage = targetLanguage;
     }
 
     async getSingleTranslation(lineData) {
-        const prompt = `Translate the following German text to English. Return one JSON object in this exact format: {"original": "German text", "translated": "English text"}
+        const prompt = `Translate the following ${this.sourceLanguage} text to ${this.targetLanguage}. Return one JSON object in this exact format: {"original": "${this.sourceLanguage} text", "translated": "${this.targetLanguage} text"}
 
-German text to translate:
+${this.sourceLanguage} text to translate:
 ${lineData.original_text}
 
 Return one JSON object:`;

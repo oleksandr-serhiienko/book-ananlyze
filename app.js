@@ -10,6 +10,7 @@ class BookProcessorUI {
         
         this.initializeElements();
         this.attachEventListeners();
+        this.loadSupportedLanguages();
         this.updateUI();
     }
 
@@ -28,7 +29,9 @@ class BookProcessorUI {
             totalLinesDisplay: document.getElementById('totalLines'),
             successfulLinesDisplay: document.getElementById('successfulLines'),
             failedLinesDisplay: document.getElementById('failedLines'),
-            processingTimeDisplay: document.getElementById('processingTime')
+            processingTimeDisplay: document.getElementById('processingTime'),
+            sourceLanguage: document.getElementById('sourceLanguage'),
+            targetLanguage: document.getElementById('targetLanguage')
         };
     }
 
@@ -40,6 +43,42 @@ class BookProcessorUI {
         
         // Set default file path
         this.elements.textFile.value = "C:\\Dev\\Application\\book-prepare\\third_book_all_chapters.txt";
+    }
+
+    async loadSupportedLanguages() {
+        try {
+            const response = await fetch('http://localhost:3001/api/languages');
+            if (!response.ok) {
+                throw new Error('Failed to load supported languages');
+            }
+            
+            const data = await response.json();
+            this.populateLanguageOptions(data.supportedLanguages, data.defaultSource, data.defaultTarget);
+            
+        } catch (error) {
+            console.error('Error loading supported languages:', error);
+            // Fall back to default options if API fails
+            this.addLog('Using default language options (API unavailable)', 'warn');
+        }
+    }
+
+    populateLanguageOptions(supportedLanguages, defaultSource, defaultTarget) {
+        // Clear existing options
+        this.elements.sourceLanguage.innerHTML = '';
+        this.elements.targetLanguage.innerHTML = '';
+        
+        // Populate both select elements
+        Object.values(supportedLanguages).forEach(language => {
+            const sourceOption = new Option(language, language);
+            const targetOption = new Option(language, language);
+            
+            this.elements.sourceLanguage.add(sourceOption);
+            this.elements.targetLanguage.add(targetOption);
+        });
+        
+        // Set default selections
+        this.elements.sourceLanguage.value = defaultSource;
+        this.elements.targetLanguage.value = defaultTarget;
     }
 
     addLog(message, type = 'info') {
@@ -124,9 +163,16 @@ class BookProcessorUI {
             modelEndpoint: document.getElementById('modelEndpoint').value.trim()
         };
 
+        // Get translation configuration
+        const translationConfig = {
+            sourceLanguage: this.elements.sourceLanguage.value,
+            targetLanguage: this.elements.targetLanguage.value
+        };
+
         this.addLog('Starting sentence-by-sentence processing...', 'info');
         this.addLog(`File: ${filePath}`, 'info');
         this.addLog(`AI Config: Project ${aiConfig.projectId}, Location ${aiConfig.location}`, 'info');
+        this.addLog(`Translation: ${translationConfig.sourceLanguage} → ${translationConfig.targetLanguage}`, 'info');
 
         try {
             const response = await fetch('http://localhost:3001/api/process/start', {
@@ -136,7 +182,8 @@ class BookProcessorUI {
                 },
                 body: JSON.stringify({
                     filePath,
-                    aiConfig
+                    aiConfig,
+                    translationConfig
                 })
             });
 

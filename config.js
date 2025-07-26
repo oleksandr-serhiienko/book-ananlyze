@@ -8,6 +8,22 @@ export default {
     RATE_LIMIT_DELAY: 100, // Milliseconds between starting new requests
     MAX_QUEUE_SIZE: 50, // Maximum sentences in processing queue
 
+    // Translation Configuration
+    DEFAULT_SOURCE_LANGUAGE: 'German', // Default source language
+    DEFAULT_TARGET_LANGUAGE: 'English', // Default target language
+    SUPPORTED_LANGUAGES: {
+        'de': 'German',
+        'en': 'English', 
+        'es': 'Spanish',
+        'fr': 'French',
+        'it': 'Italian',
+        'pt': 'Portuguese',
+        'ru': 'Russian',
+        'zh': 'Chinese',
+        'ja': 'Japanese',
+        'ko': 'Korean'
+    },
+
     // File Paths (organized in folders)
     SQL_OUTPUT_FILE_SENTENCES: 'logs/sql/book_sentences_inserts.sql',
     ERROR_LOG_FILE_SENTENCES: 'logs/errors/sentence_processing_errors.log',

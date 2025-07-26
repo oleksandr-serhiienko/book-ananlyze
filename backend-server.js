@@ -103,7 +103,7 @@ try {
 // Start sentence-by-sentence processing
 app.post('/api/process/start', async (req, res) => {
     try {
-        const { filePath, aiConfig } = req.body;
+        const { filePath, aiConfig, translationConfig } = req.body;
 
         if (!filePath) {
             const error = new Error('File path is required');
@@ -162,6 +162,17 @@ app.post('/api/process/start', async (req, res) => {
             }
         } else {
             addLog('Using default AI configuration from config.js');
+        }
+
+        // Update translation configuration if provided
+        if (translationConfig) {
+            const sourceLanguage = translationConfig.sourceLanguage || config.DEFAULT_SOURCE_LANGUAGE;
+            const targetLanguage = translationConfig.targetLanguage || config.DEFAULT_TARGET_LANGUAGE;
+            
+            addLog(`Using translation config - From: ${sourceLanguage} To: ${targetLanguage}`);
+            modelClient.setLanguagePair(sourceLanguage, targetLanguage);
+        } else {
+            addLog(`Using default translation: ${config.DEFAULT_SOURCE_LANGUAGE} to ${config.DEFAULT_TARGET_LANGUAGE}`);
         }
 
         // Read file and detect chapters
@@ -332,6 +343,15 @@ app.get('/api/status', (req, res) => {
         successfulLines: processingState.successfulLines,
         failedLines: processingState.failedLines,
         jobName: processingState.jobName
+    });
+});
+
+// Get supported languages
+app.get('/api/languages', (req, res) => {
+    res.json({
+        supportedLanguages: config.SUPPORTED_LANGUAGES,
+        defaultSource: config.DEFAULT_SOURCE_LANGUAGE,
+        defaultTarget: config.DEFAULT_TARGET_LANGUAGE
     });
 });
 
@@ -789,6 +809,7 @@ app.listen(PORT, () => {
     console.log('  POST /api/process/start - Start sentence processing');
     console.log('  POST /api/batch/start - Start batch processing');
     console.log('  GET  /api/status - Get processing status');
+    console.log('  GET  /api/languages - Get supported languages');
     console.log('  POST /api/stop - Stop processing');
     console.log('  GET  /api/download/sql - Download SQL results');
 });
