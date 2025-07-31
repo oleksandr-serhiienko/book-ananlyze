@@ -410,7 +410,7 @@ app.get('/api/languages', (req, res) => {
 // Start word processing
 app.post('/api/words/start', async (req, res) => {
     try {
-        const { filePath } = req.body;
+        const { filePath, databasePath } = req.body;
 
         if (!filePath) {
             const error = new Error('File path is required');
@@ -447,14 +447,18 @@ app.post('/api/words/start', async (req, res) => {
         wordProcessingState.status = 'processing';
 
         addWordLog(`Starting word processing: ${filePath}`);
+        if (databasePath) {
+            addWordLog(`Using database: ${databasePath}`);
+        }
 
         res.json({ 
             message: 'Word processing started successfully',
-            filePath: filePath
+            filePath: filePath,
+            databasePath: databasePath || 'MudadibFullGemini.db'
         });
 
         // Start word processing in background
-        processWords(filePath);
+        processWords(filePath, databasePath);
 
     } catch (error) {
         addWordLog('Unexpected error in /api/words/start', 'error', error);
@@ -956,16 +960,26 @@ function runCommand(command, args, onData) {
     });
 }
 
-async function processWords(filePath) {
+async function processWords(filePath, databasePath) {
     const functionName = 'processWords';
     addWordLog(`Starting ${functionName} for file: ${filePath}`);
+    if (databasePath) {
+        addWordLog(`Database path: ${databasePath}`);
+    }
     
     try {
         if (!WordProcessor) {
             throw new Error('WordProcessor not loaded');
         }
 
-        wordProcessingState.currentWordProcessor = new WordProcessor();
+        wordProcessingState.currentWordProcessor = new WordProcessor(databasePath);
+        
+        if (databasePath) {
+            addWordLog(`WordProcessor configured with database: ${databasePath}`);
+        } else {
+            addWordLog(`WordProcessor using default database: MudadibFullGemini.db`);
+        }
+        
         addWordLog('WordProcessor instance created');
 
         const result = await wordProcessingState.currentWordProcessor.processFile(filePath);

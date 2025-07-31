@@ -75,6 +75,64 @@ main {
     background-color: #f7fafc;
 }
 
+/* File Input Group Styles */
+.file-input-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin: 5px 0;
+}
+
+.file-input-group input[type="text"] {
+    flex: 1;
+}
+
+.btn-browse {
+    background: #667eea;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn-browse:hover {
+    background: #5a67d8;
+}
+
+.btn-browse:active {
+    background: #4c51bf;
+}
+
+/* Quick Database Selection Buttons */
+.db-quick-btn {
+    background: #e2e8f0;
+    color: #4a5568;
+    border: 1px solid #cbd5e0;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.db-quick-btn:hover {
+    background: #cbd5e0;
+    border-color: #a0aec0;
+}
+
+.db-quick-btn:active,
+.db-quick-btn.selected {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
 section {
     margin-bottom: 30px;
 }

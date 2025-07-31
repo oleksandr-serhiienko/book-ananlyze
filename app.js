@@ -22,11 +22,16 @@ class BookProcessorUI {
         this.attachEventListeners();
         this.loadSupportedLanguages();
         this.updateUI();
+        
+        // Initialize quick button selection
+        setTimeout(() => this.updateQuickButtonSelection(), 100);
     }
 
     initializeElements() {
         this.elements = {
             textFile: document.getElementById('textFile'),
+            textFileInput: document.getElementById('textFileInput'),
+            browseTextBtn: document.getElementById('browseTextBtn'),
             startBtn: document.getElementById('startProcessing'),
             stopBtn: document.getElementById('stopProcessing'),
             downloadBtn: document.getElementById('downloadSQL'),
@@ -50,6 +55,10 @@ class BookProcessorUI {
             // Mode-specific elements
             sentenceModeInfo: document.getElementById('sentenceModeInfo'),
             wordModeInfo: document.getElementById('wordModeInfo'),
+            databaseConfigGroup: document.getElementById('databaseConfigGroup'),
+            databasePath: document.getElementById('databasePath'),
+            databaseFileInput: document.getElementById('databaseFileInput'),
+            browseDatabaseBtn: document.getElementById('browseDatabaseBtn'),
             sentenceResults: document.getElementById('sentenceResults'),
             wordResults: document.getElementById('wordResults'),
             
@@ -71,6 +80,19 @@ class BookProcessorUI {
         // Tab switching
         this.elements.sentenceTab.addEventListener('click', () => this.switchMode('sentence'));
         this.elements.wordTab.addEventListener('click', () => this.switchMode('word'));
+        
+        // File selection
+        this.elements.browseTextBtn.addEventListener('click', () => this.browseTextFile());
+        this.elements.textFileInput.addEventListener('change', (e) => this.handleTextFileSelect(e));
+        this.elements.browseDatabaseBtn.addEventListener('click', () => this.browseDatabaseFile());
+        this.elements.databaseFileInput.addEventListener('change', (e) => this.handleDatabaseFileSelect(e));
+        
+        // Quick database selection buttons
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('db-quick-btn')) {
+                this.selectQuickDatabase(e.target);
+            }
+        });
         
         // Set default file path
         this.elements.textFile.value = "C:\\Dev\\Application\\book-prepare\\third_book_all_chapters.txt";
@@ -136,6 +158,7 @@ class BookProcessorUI {
         // Show/hide mode-specific info
         this.elements.sentenceModeInfo.style.display = mode === 'sentence' ? 'block' : 'none';
         this.elements.wordModeInfo.style.display = mode === 'word' ? 'block' : 'none';
+        this.elements.databaseConfigGroup.style.display = mode === 'word' ? 'block' : 'none';
         
         // Show/hide results
         this.elements.sentenceResults.style.display = mode === 'sentence' ? 'grid' : 'none';
@@ -149,6 +172,59 @@ class BookProcessorUI {
         }
         
         this.updateUI();
+    }
+
+    browseTextFile() {
+        this.elements.textFileInput.click();
+    }
+
+    handleTextFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) {
+            // Use the file path (for desktop apps) or file name (for web)
+            const filePath = file.path || file.name;
+            this.elements.textFile.value = filePath;
+            this.addLog(`Text file selected: ${filePath}`, 'info');
+        }
+    }
+
+    browseDatabaseFile() {
+        this.elements.databaseFileInput.click();
+    }
+
+    handleDatabaseFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) {
+            // Use the file path (for desktop apps) or file name (for web)
+            const filePath = file.path || file.name;
+            this.elements.databasePath.value = filePath;
+            this.updateQuickButtonSelection();
+            this.addLog(`Database file selected: ${filePath}`, 'info');
+        }
+    }
+
+    selectQuickDatabase(button) {
+        const dbPath = button.dataset.db;
+        this.elements.databasePath.value = dbPath;
+        this.updateQuickButtonSelection();
+        
+        if (dbPath === '') {
+            this.addLog('Set to process all words (no database check)', 'info');
+        } else {
+            this.addLog(`Database set to: ${dbPath}`, 'info');
+        }
+    }
+
+    updateQuickButtonSelection() {
+        const currentPath = this.elements.databasePath.value;
+        const quickButtons = document.querySelectorAll('.db-quick-btn');
+        
+        quickButtons.forEach(btn => {
+            btn.classList.remove('selected');
+            if (btn.dataset.db === currentPath) {
+                btn.classList.add('selected');
+            }
+        });
     }
 
     updateProgress() {
@@ -460,9 +536,11 @@ class BookProcessorUI {
 
     async startWordProcessing() {
         const filePath = this.elements.textFile.value.trim();
+        const databasePath = this.elements.databasePath.value.trim();
 
         this.addLog('Starting word processing...', 'info');
         this.addLog(`File: ${filePath}`, 'info');
+        this.addLog(`Database: ${databasePath}`, 'info');
 
         try {
             const response = await fetch('http://localhost:3001/api/words/start', {
@@ -471,7 +549,8 @@ class BookProcessorUI {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    filePath
+                    filePath,
+                    databasePath
                 })
             });
 

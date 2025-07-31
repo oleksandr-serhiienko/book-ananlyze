@@ -5,7 +5,7 @@ import config from './config.js';
 import ModelClient from './modelClient.js';
 
 class WordProcessor {
-    constructor() {
+    constructor(customDatabasePath = null) {
         this.modelClient = new ModelClient(config);
         this.isProcessing = false;
         this.sqlInsertStatements = [];
@@ -19,7 +19,7 @@ class WordProcessor {
         // Configuration constants
         this.MAX_RETRIES = 5;
         this.RETRY_DELAY_SECONDS = 5000;
-        this.DB_NAME = 'MudadibFullGemini.db';
+        this.DB_NAME = customDatabasePath || 'MudadibFullGemini.db';
         this.TEXT_FILE_PATH = config.TEXT_FILE_PATH;
     }
 
@@ -103,17 +103,21 @@ class WordProcessor {
             return [];
         }
         
+        console.log(`Checking words against database: ${dbPath}`);
+        
         return new Promise((resolve, reject) => {
             const newWordsToQuery = [];
             
             try {
                 const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
                     if (err) {
-                        console.log(`Database connection error: ${err.message}`);
+                        console.log(`Database connection error for ${dbPath}: ${err.message}`);
                         console.log("Proceeding to query all words from text file, as DB check failed.");
                         resolve(wordsFromText);
                         return;
                     }
+                    
+                    console.log(`Successfully connected to database: ${dbPath}`);
                     
                     db.all("SELECT DISTINCT queried_word FROM words", (err, rows) => {
                         if (err) {

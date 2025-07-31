@@ -25,7 +25,11 @@
             <section class="controls">
                 <div class="input-group">
                     <label for="textFile">Text File Path:</label>
-                    <input type="text" id="textFile" placeholder="Enter path to text file">
+                    <div class="file-input-group">
+                        <input type="text" id="textFile" placeholder="Enter path to text file">
+                        <input type="file" id="textFileInput" accept=".txt,.text" style="display: none;">
+                        <button type="button" id="browseTextBtn" class="btn-browse">Browse...</button>
+                    </div>
                 </div>
                 
                 <!-- Sentence Processing Mode Info -->
@@ -40,6 +44,35 @@
                     <label>Processing Mode:</label>
                     <span style="color: #2d3748; font-weight: 500;">Word Extraction & Translation</span>
                     <p style="color: #4a5568; font-size: 0.9em; margin: 5px 0 0 0;">Extract unique words, check database, and translate new words concurrently</p>
+                </div>
+
+                <!-- Database Configuration for Word Processing -->
+                <div class="input-group" id="databaseConfigGroup" style="display: none;">
+                    <h3 style="color: #4a5568; margin-bottom: 15px;">Database Configuration</h3>
+                    <div style="background: #f7fafc; padding: 15px; border-radius: 8px;">
+                        <div>
+                            <label for="databasePath">Database Path:</label>
+                            <div class="file-input-group">
+                                <input type="text" id="databasePath" value="MudadibFullGemini.db" placeholder="Enter database file path">
+                                <input type="file" id="databaseFileInput" accept=".db,.sqlite,.sqlite3" style="display: none;">
+                                <button type="button" id="browseDatabaseBtn" class="btn-browse">Browse...</button>
+                            </div>
+                            <p style="color: #4a5568; font-size: 0.85em; margin: 5px 0 0 0;">Database to check for existing words before processing (supports .db, .sqlite, .sqlite3 files)</p>
+                            
+                            <!-- Quick Database Options -->
+                            <div style="margin-top: 10px;">
+                                <label style="font-size: 0.9em; color: #4a5568;">Quick Select:</label>
+                                <div style="display: flex; gap: 10px; margin-top: 5px; flex-wrap: wrap;">
+                                    <button type="button" class="db-quick-btn" data-db="MudadibFullGemini.db">🗃️ Default DB</button>
+                                    <button type="button" class="db-quick-btn" data-db="">🚫 No Database</button>
+                                    <button type="button" class="db-quick-btn" data-db="words.db">📚 words.db</button>
+                                    <button type="button" class="db-quick-btn" data-db="translations.db">🌐 translations.db</button>
+                                    <button type="button" class="db-quick-btn" data-db="backup.db">💾 backup.db</button>
+                                </div>
+                                <p style="color: #718096; font-size: 0.8em; margin: 8px 0 0 0; font-style: italic;">💡 Tip: "No Database" will process all words without checking existing entries</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Shared AI Configuration -->
