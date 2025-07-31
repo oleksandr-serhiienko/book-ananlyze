@@ -41,6 +41,40 @@ main {
     box-shadow: 0 10px 30px rgba(0,0,0,0.2);
 }
 
+/* Tab Styles */
+.mode-selector {
+    margin-bottom: 20px;
+}
+
+.tabs {
+    display: flex;
+    border-bottom: 2px solid #e2e8f0;
+    margin-bottom: 0;
+}
+
+.tab-button {
+    background: none;
+    border: none;
+    padding: 12px 24px;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #718096;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.tab-button:hover {
+    color: #4a5568;
+    background-color: #f7fafc;
+}
+
+.tab-button.active {
+    color: #667eea;
+    border-bottom-color: #667eea;
+    background-color: #f7fafc;
+}
+
 section {
     margin-bottom: 30px;
 }

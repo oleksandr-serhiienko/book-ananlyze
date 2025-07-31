@@ -14,16 +14,32 @@
         </header>
 
         <main>
+            <!-- Processing Mode Selection -->
+            <section class="mode-selector">
+                <div class="tabs">
+                    <button id="sentenceTab" class="tab-button active">Sentence Processing</button>
+                    <button id="wordTab" class="tab-button">Word Processing</button>
+                </div>
+            </section>
+
             <section class="controls">
                 <div class="input-group">
                     <label for="textFile">Text File Path:</label>
                     <input type="text" id="textFile" placeholder="Enter path to text file">
                 </div>
                 
-                <div class="input-group">
+                <!-- Sentence Processing Mode Info -->
+                <div class="input-group" id="sentenceModeInfo">
                     <label>Processing Mode:</label>
-                    <span style="color: #2d3748; font-weight: 500;">Concurrent Processing</span>
+                    <span style="color: #2d3748; font-weight: 500;">Sentence-by-Sentence Translation</span>
                     <p style="color: #4a5568; font-size: 0.9em; margin: 5px 0 0 0;">5 sentences processed in parallel for maximum speed</p>
+                </div>
+
+                <!-- Word Processing Mode Info -->
+                <div class="input-group" id="wordModeInfo" style="display: none;">
+                    <label>Processing Mode:</label>
+                    <span style="color: #2d3748; font-weight: 500;">Word Extraction & Translation</span>
+                    <p style="color: #4a5568; font-size: 0.9em; margin: 5px 0 0 0;">Extract unique words, check database, and translate new words concurrently</p>
                 </div>
                 
                 <!-- Shared AI Configuration -->
@@ -106,8 +122,10 @@
             </section>
 
             <section class="results">
-                <h2>Results Summary</h2>
-                <div class="results-grid">
+                <h2 id="resultsTitle">Results Summary</h2>
+                
+                <!-- Sentence Processing Results -->
+                <div class="results-grid" id="sentenceResults">
                     <div class="result-card">
                         <h3>Total Lines</h3>
                         <span id="totalLines" class="result-number">0</span>
@@ -123,6 +141,30 @@
                     <div class="result-card">
                         <h3>Processing Time</h3>
                         <span id="processingTime" class="result-number">0s</span>
+                    </div>
+                </div>
+
+                <!-- Word Processing Results -->
+                <div class="results-grid" id="wordResults" style="display: none;">
+                    <div class="result-card">
+                        <h3>Total Words</h3>
+                        <span id="totalWords" class="result-number">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>New Words</h3>
+                        <span id="newWords" class="result-number">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Successful</h3>
+                        <span id="successfulWords" class="result-number success">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Failed</h3>
+                        <span id="failedWords" class="result-number error">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Processing Time</h3>
+                        <span id="wordProcessingTime" class="result-number">0s</span>
                     </div>
                 </div>
             </section>
