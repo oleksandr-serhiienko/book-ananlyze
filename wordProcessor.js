@@ -103,6 +103,12 @@ class WordProcessor {
             return [];
         }
         
+        // Skip database check if no database path provided (No Database option)
+        if (!dbPath || dbPath.trim() === '') {
+            console.log('No database path provided - processing all words without database check');
+            return wordsFromText;
+        }
+        
         console.log(`Checking words against database: ${dbPath}`);
         
         return new Promise((resolve, reject) => {

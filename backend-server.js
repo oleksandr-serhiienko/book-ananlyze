@@ -447,14 +447,16 @@ app.post('/api/words/start', async (req, res) => {
         wordProcessingState.status = 'processing';
 
         addWordLog(`Starting word processing: ${filePath}`);
-        if (databasePath) {
+        if (databasePath && databasePath.trim() !== '') {
             addWordLog(`Using database: ${databasePath}`);
+        } else {
+            addWordLog('No database specified - processing all words without checking existing entries');
         }
 
         res.json({ 
             message: 'Word processing started successfully',
             filePath: filePath,
-            databasePath: databasePath || 'MudadibFullGemini.db'
+            databasePath: databasePath || null
         });
 
         // Start word processing in background
@@ -974,10 +976,10 @@ async function processWords(filePath, databasePath) {
 
         wordProcessingState.currentWordProcessor = new WordProcessor(databasePath);
         
-        if (databasePath) {
+        if (databasePath && databasePath.trim() !== '') {
             addWordLog(`WordProcessor configured with database: ${databasePath}`);
         } else {
-            addWordLog(`WordProcessor using default database: MudadibFullGemini.db`);
+            addWordLog(`WordProcessor configured with no database - will process all words`);
         }
         
         addWordLog('WordProcessor instance created');
