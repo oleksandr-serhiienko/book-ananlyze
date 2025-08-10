@@ -5,8 +5,18 @@ import config from './config.js';
 import ModelClient from './modelClient.js';
 
 class WordProcessor {
-    constructor(customDatabasePath = null) {
-        this.modelClient = new ModelClient(config);
+    constructor(customDatabasePath = null, customConfig = null) {
+        // Use custom config if provided, otherwise use default config
+        const finalConfig = customConfig || config;
+        this.modelClient = new ModelClient(finalConfig);
+        
+        // Log the configuration being used
+        console.log(`WordProcessor initialized with:`);
+        console.log(`  Project ID: ${finalConfig.PROJECT_ID}`);
+        console.log(`  Location: ${finalConfig.LOCATION}`);
+        console.log(`  Model Endpoint: ${finalConfig.MODEL_ENDPOINT}`);
+        console.log(`  Source Language: ${finalConfig.DEFAULT_SOURCE_LANGUAGE}`);
+        console.log(`  Target Language: ${finalConfig.DEFAULT_TARGET_LANGUAGE}`);
         this.isProcessing = false;
         this.sqlInsertStatements = [];
         
@@ -40,6 +50,23 @@ class WordProcessor {
 
     stop() {
         this.isProcessing = false;
+    }
+
+    getLanguageCode(languageName) {
+        // Convert language names to codes (same mapping as sentence processing)
+        const languageMap = {
+            'German': 'de',
+            'English': 'en', 
+            'Spanish': 'es',
+            'French': 'fr',
+            'Italian': 'it',
+            'Portuguese': 'pt',
+            'Russian': 'ru',
+            'Chinese': 'zh',
+            'Japanese': 'ja',
+            'Korean': 'ko'
+        };
+        return languageMap[languageName] || languageName.toLowerCase().substring(0, 2);
     }
 
     generateSchemaSQL() {
@@ -270,16 +297,40 @@ class WordProcessor {
     }
 
     async getTranslationFromModel(originalWordToQuery) {
-        const textPrompt = `de-en? ${originalWordToQuery}`;
+        // Use the same language pair format as sentence processing
+        const sourceLanguageCode = this.getLanguageCode(this.modelClient.sourceLanguage);
+        const targetLanguageCode = this.getLanguageCode(this.modelClient.targetLanguage);
         
-        // Create a mock lineData object for compatibility with ModelClient
-        const mockLineData = {
-            original_text: textPrompt
-        };
+        // Format: "de-en |word|" or "de-rus |word|" based on current language settings
+        const textPrompt = `${sourceLanguageCode}-${targetLanguageCode} |${originalWordToQuery}|`;
+        
+        // Log the exact prompt being sent to the model
+        console.log(`Sending to model: "${textPrompt}"`);
         
         try {
-            const rawModelOutput = await this.modelClient.getSingleTranslation(mockLineData);
-            return rawModelOutput;
+            // Call the model directly with the correct prompt format for word processing
+            const chat = this.modelClient.ai.chats.create({
+                model: this.modelClient.model,
+                config: this.modelClient.generationConfig
+            });
+
+            const message = { text: textPrompt };
+            const response = await chat.sendMessage({ message: [message] });
+            
+            // Handle streaming response
+            let fullResponse = '';
+            if (response.text) {
+                fullResponse = response.text;
+            } else {
+                // Handle stream if needed
+                for await (const chunk of response) {
+                    if (chunk.text) {
+                        fullResponse += chunk.text;
+                    }
+                }
+            }
+            
+            return fullResponse;
         } catch (error) {
             throw error;
         }
@@ -290,6 +341,7 @@ class WordProcessor {
         
         for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
             console.log(`Processing '${originalWordToQuery}', Attempt ${attempt}/${this.MAX_RETRIES}...`);
+            console.log(`Language settings: ${this.modelClient.sourceLanguage} → ${this.modelClient.targetLanguage}`);
             
             try {
                 const fullRawStreamedOutput = await this.getTranslationFromModel(originalWordToQuery);

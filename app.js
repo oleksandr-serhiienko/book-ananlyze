@@ -538,9 +538,24 @@ class BookProcessorUI {
         const filePath = this.elements.textFile.value.trim();
         const databasePath = this.elements.databasePath.value.trim();
 
+        // Get AI configuration from form (same as sentence processing)
+        const aiConfig = {
+            projectId: document.getElementById('projectId').value.trim(),
+            location: document.getElementById('location').value.trim(),
+            modelEndpoint: document.getElementById('modelEndpoint').value.trim()
+        };
+
+        // Get translation configuration from form (same as sentence processing)
+        const translationConfig = {
+            sourceLanguage: document.getElementById('sourceLanguage').value,
+            targetLanguage: document.getElementById('targetLanguage').value
+        };
+
         this.addLog('Starting word processing...', 'info');
         this.addLog(`File: ${filePath}`, 'info');
         this.addLog(`Database: ${databasePath}`, 'info');
+        this.addLog(`AI Config: Project ${aiConfig.projectId}, Location ${aiConfig.location}`, 'info');
+        this.addLog(`Translation: ${translationConfig.sourceLanguage} → ${translationConfig.targetLanguage}`, 'info');
 
         try {
             const response = await fetch('http://localhost:3001/api/words/start', {
@@ -550,7 +565,9 @@ class BookProcessorUI {
                 },
                 body: JSON.stringify({
                     filePath,
-                    databasePath
+                    databasePath,
+                    aiConfig,  // Pass AI config to word processing
+                    translationConfig  // Pass translation config to word processing
                 })
             });
 

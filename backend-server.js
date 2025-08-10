@@ -410,7 +410,7 @@ app.get('/api/languages', (req, res) => {
 // Start word processing
 app.post('/api/words/start', async (req, res) => {
     try {
-        const { filePath, databasePath } = req.body;
+        const { filePath, databasePath, aiConfig, translationConfig } = req.body;
 
         if (!filePath) {
             const error = new Error('File path is required');
@@ -453,6 +453,14 @@ app.post('/api/words/start', async (req, res) => {
             addWordLog('No database specified - processing all words without checking existing entries');
         }
 
+        // Handle AI configuration for word processing (like sentence processing)
+        if (aiConfig) {
+            addWordLog(`Using custom AI config - Project: ${aiConfig.projectId}, Location: ${aiConfig.location}`);
+            addWordLog(`Model endpoint: ${aiConfig.modelEndpoint}`);
+        } else {
+            addWordLog('Using default AI configuration from config.js');
+        }
+
         res.json({ 
             message: 'Word processing started successfully',
             filePath: filePath,
@@ -460,7 +468,7 @@ app.post('/api/words/start', async (req, res) => {
         });
 
         // Start word processing in background
-        processWords(filePath, databasePath);
+        processWords(filePath, databasePath, aiConfig, translationConfig);
 
     } catch (error) {
         addWordLog('Unexpected error in /api/words/start', 'error', error);
@@ -962,7 +970,7 @@ function runCommand(command, args, onData) {
     });
 }
 
-async function processWords(filePath, databasePath) {
+async function processWords(filePath, databasePath, aiConfig, translationConfig) {
     const functionName = 'processWords';
     addWordLog(`Starting ${functionName} for file: ${filePath}`);
     if (databasePath) {
@@ -974,7 +982,31 @@ async function processWords(filePath, databasePath) {
             throw new Error('WordProcessor not loaded');
         }
 
-        wordProcessingState.currentWordProcessor = new WordProcessor(databasePath);
+        // Create custom config with AI settings if provided
+        let customConfig = null;
+        if (aiConfig) {
+            customConfig = {
+                ...config,
+                PROJECT_ID: aiConfig.projectId || config.PROJECT_ID,
+                LOCATION: aiConfig.location || config.LOCATION,
+                MODEL_ENDPOINT: aiConfig.modelEndpoint || config.MODEL_ENDPOINT
+            };
+            
+            addWordLog(`WordProcessor will use: Project ${customConfig.PROJECT_ID}, Model ${customConfig.MODEL_ENDPOINT}`);
+        }
+
+        wordProcessingState.currentWordProcessor = new WordProcessor(databasePath, customConfig);
+
+        // Update translation configuration if provided (like sentence processing)
+        if (translationConfig) {
+            const sourceLanguage = translationConfig.sourceLanguage || config.DEFAULT_SOURCE_LANGUAGE;
+            const targetLanguage = translationConfig.targetLanguage || config.DEFAULT_TARGET_LANGUAGE;
+            
+            addWordLog(`Using translation config - From: ${sourceLanguage} To: ${targetLanguage}`);
+            wordProcessingState.currentWordProcessor.modelClient.setLanguagePair(sourceLanguage, targetLanguage);
+        } else {
+            addWordLog(`Using default translation: ${config.DEFAULT_SOURCE_LANGUAGE} to ${config.DEFAULT_TARGET_LANGUAGE}`);
+        }
         
         if (databasePath && databasePath.trim() !== '') {
             addWordLog(`WordProcessor configured with database: ${databasePath}`);
