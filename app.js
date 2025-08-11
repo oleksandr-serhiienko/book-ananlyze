@@ -16,7 +16,14 @@ class BookProcessorUI {
         this.successfulWords = 0;
         this.failedWords = 0;
         this.wordStartTime = null;
-        this.currentMode = 'sentence'; // 'sentence' or 'word'
+        
+        // EPUB processing state
+        this.isEpubProcessing = false;
+        this.chapterCount = 0;
+        this.textLength = 0;
+        this.epubStartTime = null;
+        
+        this.currentMode = 'sentence'; // 'sentence', 'word', or 'epub'
         
         this.initializeElements();
         this.attachEventListeners();
@@ -51,23 +58,36 @@ class BookProcessorUI {
             // Tab elements
             sentenceTab: document.getElementById('sentenceTab'),
             wordTab: document.getElementById('wordTab'),
+            epubTab: document.getElementById('epubTab'),
             
             // Mode-specific elements
             sentenceModeInfo: document.getElementById('sentenceModeInfo'),
             wordModeInfo: document.getElementById('wordModeInfo'),
+            epubModeInfo: document.getElementById('epubModeInfo'),
             databaseConfigGroup: document.getElementById('databaseConfigGroup'),
+            epubConfigGroup: document.getElementById('epubConfigGroup'),
             databasePath: document.getElementById('databasePath'),
             databaseFileInput: document.getElementById('databaseFileInput'),
             browseDatabaseBtn: document.getElementById('browseDatabaseBtn'),
+            epubFile: document.getElementById('epubFile'),
+            epubFileInput: document.getElementById('epubFileInput'),
+            browseEpubBtn: document.getElementById('browseEpubBtn'),
             sentenceResults: document.getElementById('sentenceResults'),
             wordResults: document.getElementById('wordResults'),
+            epubResults: document.getElementById('epubResults'),
             
             // Word processing elements
             totalWordsDisplay: document.getElementById('totalWords'),
             newWordsDisplay: document.getElementById('newWords'),
             successfulWordsDisplay: document.getElementById('successfulWords'),
             failedWordsDisplay: document.getElementById('failedWords'),
-            wordProcessingTimeDisplay: document.getElementById('wordProcessingTime')
+            wordProcessingTimeDisplay: document.getElementById('wordProcessingTime'),
+            
+            // EPUB processing elements
+            chapterCountDisplay: document.getElementById('chapterCount'),
+            textLengthDisplay: document.getElementById('textLength'),
+            epubStatusDisplay: document.getElementById('epubStatus'),
+            epubFileSizeDisplay: document.getElementById('epubFileSize')
         };
     }
 
@@ -80,12 +100,15 @@ class BookProcessorUI {
         // Tab switching
         this.elements.sentenceTab.addEventListener('click', () => this.switchMode('sentence'));
         this.elements.wordTab.addEventListener('click', () => this.switchMode('word'));
+        this.elements.epubTab.addEventListener('click', () => this.switchMode('epub'));
         
         // File selection
         this.elements.browseTextBtn.addEventListener('click', () => this.browseTextFile());
         this.elements.textFileInput.addEventListener('change', (e) => this.handleTextFileSelect(e));
         this.elements.browseDatabaseBtn.addEventListener('click', () => this.browseDatabaseFile());
         this.elements.databaseFileInput.addEventListener('change', (e) => this.handleDatabaseFileSelect(e));
+        this.elements.browseEpubBtn.addEventListener('click', () => this.browseEpubFile());
+        this.elements.epubFileInput.addEventListener('change', (e) => this.handleEpubFileSelect(e));
         
         // Quick database selection buttons
         document.addEventListener('click', (e) => {
@@ -100,7 +123,7 @@ class BookProcessorUI {
 
     async loadSupportedLanguages() {
         try {
-            const response = await fetch('http://localhost:3001/api/languages');
+            const response = await fetch('http://localhost:3005/api/languages');
             if (!response.ok) {
                 throw new Error('Failed to load supported languages');
             }
@@ -154,21 +177,40 @@ class BookProcessorUI {
         // Update tab appearance
         this.elements.sentenceTab.classList.toggle('active', mode === 'sentence');
         this.elements.wordTab.classList.toggle('active', mode === 'word');
+        this.elements.epubTab.classList.toggle('active', mode === 'epub');
         
         // Show/hide mode-specific info
         this.elements.sentenceModeInfo.style.display = mode === 'sentence' ? 'block' : 'none';
         this.elements.wordModeInfo.style.display = mode === 'word' ? 'block' : 'none';
+        this.elements.epubModeInfo.style.display = mode === 'epub' ? 'block' : 'none';
         this.elements.databaseConfigGroup.style.display = mode === 'word' ? 'block' : 'none';
+        this.elements.epubConfigGroup.style.display = mode === 'epub' ? 'block' : 'none';
+        
+        // Hide Text File Path field for EPUB mode since it has its own file input
+        const textFileGroup = document.getElementById('textFileGroup');
+        if (textFileGroup) textFileGroup.style.display = mode === 'epub' ? 'none' : 'block';
+        
+        // Hide AI and Translation config for EPUB mode (it's just a converter)
+        const aiConfigGroup = document.getElementById('aiConfigGroup');
+        const translationConfigGroup = document.getElementById('translationConfigGroup');
+        if (aiConfigGroup) aiConfigGroup.style.display = mode === 'epub' ? 'none' : 'block';
+        if (translationConfigGroup) translationConfigGroup.style.display = mode === 'epub' ? 'none' : 'block';
         
         // Show/hide results
         this.elements.sentenceResults.style.display = mode === 'sentence' ? 'grid' : 'none';
         this.elements.wordResults.style.display = mode === 'word' ? 'grid' : 'none';
+        this.elements.epubResults.style.display = mode === 'epub' ? 'grid' : 'none';
         
         // Reset processing states when switching modes
         if (mode === 'sentence') {
             this.isWordProcessing = false;
-        } else {
+            this.isEpubProcessing = false;
+        } else if (mode === 'word') {
             this.isProcessing = false;
+            this.isEpubProcessing = false;
+        } else if (mode === 'epub') {
+            this.isProcessing = false;
+            this.isWordProcessing = false;
         }
         
         this.updateUI();
@@ -200,6 +242,26 @@ class BookProcessorUI {
             this.elements.databasePath.value = filePath;
             this.updateQuickButtonSelection();
             this.addLog(`Database file selected: ${filePath}`, 'info');
+        }
+    }
+
+    browseEpubFile() {
+        this.elements.epubFileInput.click();
+    }
+
+    handleEpubFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) {
+            // Use the file path (for desktop apps) or file name (for web)
+            const filePath = file.path || file.name;
+            this.elements.epubFile.value = filePath;
+            this.addLog(`EPUB file selected: ${filePath}`, 'info');
+            
+            // Update file size display
+            if (file.size) {
+                const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
+                this.elements.epubFileSizeDisplay.textContent = `${sizeInMB} MB`;
+            }
         }
     }
 
@@ -244,7 +306,7 @@ class BookProcessorUI {
                 const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
                 this.elements.processingTimeDisplay.textContent = `${elapsed}s`;
             }
-        } else {
+        } else if (this.currentMode === 'word') {
             // Word processing progress
             const progressPercent = this.newWords > 0 ? (this.processedWords / this.newWords) * 100 : 0;
             const successRate = this.processedWords > 0 ? ((this.successfulWords / this.processedWords) * 100).toFixed(1) : 0;
@@ -262,20 +324,44 @@ class BookProcessorUI {
                 const elapsed = Math.floor((Date.now() - this.wordStartTime) / 1000);
                 this.elements.wordProcessingTimeDisplay.textContent = `${elapsed}s`;
             }
+        } else if (this.currentMode === 'epub') {
+            // EPUB processing progress - simpler, no percentage
+            this.elements.progress.textContent = this.isEpubProcessing ? 'Processing...' : 'Ready';
+            this.elements.successRate.textContent = this.isEpubProcessing ? 'Processing' : 'N/A';
+            this.elements.progressFill.style.width = this.isEpubProcessing ? '100%' : '0%';
+            
+            this.elements.chapterCountDisplay.textContent = this.chapterCount;
+            this.elements.textLengthDisplay.textContent = this.textLength > 0 ? `${(this.textLength / 1000).toFixed(0)}k chars` : '0';
+            this.elements.epubStatusDisplay.textContent = this.isEpubProcessing ? 'Processing' : (this.chapterCount > 0 ? 'Completed' : 'Ready');
         }
     }
 
     updateUI() {
-        const isAnyProcessing = this.isProcessing || this.isWordProcessing;
-        const currentProcessing = this.currentMode === 'sentence' ? this.isProcessing : this.isWordProcessing;
-        const hasResults = this.currentMode === 'sentence' ? this.processedLines > 0 : this.processedWords > 0;
+        const isAnyProcessing = this.isProcessing || this.isWordProcessing || this.isEpubProcessing;
+        let currentProcessing, hasResults;
+        
+        if (this.currentMode === 'sentence') {
+            currentProcessing = this.isProcessing;
+            hasResults = this.processedLines > 0;
+        } else if (this.currentMode === 'word') {
+            currentProcessing = this.isWordProcessing;
+            hasResults = this.processedWords > 0;
+        } else if (this.currentMode === 'epub') {
+            currentProcessing = this.isEpubProcessing;
+            hasResults = this.chapterCount > 0;
+        }
         
         this.elements.startBtn.disabled = isAnyProcessing;
         this.elements.stopBtn.disabled = !currentProcessing;
         this.elements.textFile.disabled = isAnyProcessing;
         
         if (currentProcessing) {
-            this.elements.status.textContent = this.currentMode === 'sentence' ? 'Processing Sentences...' : 'Processing Words...';
+            let statusText = 'Processing...';
+            if (this.currentMode === 'sentence') statusText = 'Processing Sentences...';
+            else if (this.currentMode === 'word') statusText = 'Processing Words...';
+            else if (this.currentMode === 'epub') statusText = 'Converting EPUB...';
+            
+            this.elements.status.textContent = statusText;
             this.elements.status.style.color = '#f6ad55';
         } else {
             this.elements.status.textContent = hasResults ? 'Completed' : 'Ready';
@@ -288,6 +374,10 @@ class BookProcessorUI {
     }
 
     async startProcessing() {
+        if (this.currentMode === 'epub') {
+            return this.startEpubProcessing();
+        }
+        
         const filePath = this.elements.textFile.value.trim();
 
         if (!filePath) {
@@ -346,7 +436,7 @@ class BookProcessorUI {
         this.addLog(`Translation: ${translationConfig.sourceLanguage} → ${translationConfig.targetLanguage}`, 'info');
 
         try {
-            const response = await fetch('http://localhost:3001/api/process/start', {
+            const response = await fetch('http://localhost:3005/api/process/start', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -402,7 +492,7 @@ class BookProcessorUI {
         
         while (this.isProcessing) {
             try {
-                const response = await fetch('http://localhost:3001/api/status');
+                const response = await fetch('http://localhost:3005/api/status');
                 if (!response.ok) {
                     throw new Error('Failed to fetch status');
                 }
@@ -483,7 +573,7 @@ class BookProcessorUI {
             this.addLog('Stopping sentence processing...', 'info');
             
             try {
-                const response = await fetch('http://localhost:3001/api/stop', {
+                const response = await fetch('http://localhost:3005/api/stop', {
                     method: 'POST'
                 });
                 
@@ -494,12 +584,12 @@ class BookProcessorUI {
             } catch (error) {
                 this.addLog(`Error stopping sentence processing: ${error.message}`, 'error');
             }
-        } else {
+        } else if (this.currentMode === 'word') {
             this.isWordProcessing = false;
             this.addLog('Stopping word processing...', 'info');
             
             try {
-                const response = await fetch('http://localhost:3001/api/words/stop', {
+                const response = await fetch('http://localhost:3005/api/words/stop', {
                     method: 'POST'
                 });
                 
@@ -510,6 +600,10 @@ class BookProcessorUI {
             } catch (error) {
                 this.addLog(`Error stopping word processing: ${error.message}`, 'error');
             }
+        } else if (this.currentMode === 'epub') {
+            this.isEpubProcessing = false;
+            this.addLog('Stopping EPUB processing...', 'info');
+            // EPUB processing doesn't have a separate stop endpoint since it's usually quick
         }
         
         this.updateUI();
@@ -558,7 +652,7 @@ class BookProcessorUI {
         this.addLog(`Translation: ${translationConfig.sourceLanguage} → ${translationConfig.targetLanguage}`, 'info');
 
         try {
-            const response = await fetch('http://localhost:3001/api/words/start', {
+            const response = await fetch('http://localhost:3005/api/words/start', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -608,7 +702,7 @@ class BookProcessorUI {
         
         while (this.isWordProcessing) {
             try {
-                const response = await fetch('http://localhost:3001/api/words/status');
+                const response = await fetch('http://localhost:3005/api/words/status');
                 if (!response.ok) {
                     throw new Error('Failed to fetch word processing status');
                 }
@@ -663,18 +757,29 @@ class BookProcessorUI {
 
     async downloadSQL() {
         try {
-            const endpoint = this.currentMode === 'sentence' ? 'http://localhost:3001/api/download/sql' : 'http://localhost:3001/api/words/download/sql';
-            const filename = this.currentMode === 'sentence' ? 'book_sentences_inserts.sql' : 'word_translations_inserts.sql';
+            let endpoint, filename;
+            
+            if (this.currentMode === 'sentence') {
+                endpoint = 'http://localhost:3005/api/download/sql';
+                filename = 'book_sentences_inserts.sql';
+            } else if (this.currentMode === 'word') {
+                endpoint = 'http://localhost:3005/api/words/download/sql';
+                filename = 'word_translations_inserts.sql';
+            } else if (this.currentMode === 'epub') {
+                endpoint = 'http://localhost:3005/api/epub/download/text';
+                filename = 'extracted_epub_text.txt';
+            }
             
             const response = await fetch(endpoint);
             
             if (!response.ok) {
-                throw new Error('Failed to download SQL file');
+                throw new Error('Failed to download file');
             }
             
-            const sqlContent = await response.text();
+            const content = await response.text();
+            const contentType = this.currentMode === 'epub' ? 'text/plain' : 'text/sql';
             
-            const blob = new Blob([sqlContent], { type: 'text/sql' });
+            const blob = new Blob([content], { type: contentType });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -684,11 +789,143 @@ class BookProcessorUI {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            this.addLog(`${this.currentMode === 'sentence' ? 'Sentence' : 'Word'} SQL file downloaded successfully`, 'success');
+            let fileType;
+            if (this.currentMode === 'sentence') fileType = 'Sentence SQL';
+            else if (this.currentMode === 'word') fileType = 'Word SQL';
+            else if (this.currentMode === 'epub') fileType = 'Extracted text';
+            
+            this.addLog(`${fileType} file downloaded successfully`, 'success');
             
         } catch (error) {
-            this.addLog(`Error downloading SQL: ${error.message}`, 'error');
+            this.addLog(`Error downloading file: ${error.message}`, 'error');
         }
+    }
+
+    async startEpubProcessing() {
+        const filePath = this.elements.epubFile.value.trim();
+
+        if (!filePath) {
+            this.addLog('Please select an EPUB file', 'error');
+            return;
+        }
+
+        this.isEpubProcessing = true;
+        this.epubStartTime = Date.now();
+        this.resetEpubStats();
+        this.updateUI();
+
+        this.addLog('Starting EPUB to text conversion...', 'info');
+        this.addLog(`File: ${filePath}`, 'info');
+
+        try {
+            await this.processEpubFile();
+        } catch (error) {
+            this.addLog(`Conversion failed: ${error.message}`, 'error');
+            this.isEpubProcessing = false;
+            this.updateUI();
+        }
+    }
+
+    async processEpubFile() {
+        const filePath = this.elements.epubFile.value.trim();
+
+        try {
+            const response = await fetch('http://localhost:3005/api/epub/extract', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    filePath
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                let errorMessage = error.error || 'Failed to convert EPUB';
+                if (error.details) errorMessage += ` - ${error.details}`;
+                throw new Error(errorMessage);
+            }
+
+            const result = await response.json();
+            this.addLog('Conversion started...', 'success');
+            
+            // Start polling for status updates (simplified)
+            this.pollEpubStatus();
+
+        } catch (error) {
+            this.addLog(`Conversion error: ${error.message}`, 'error');
+            throw error;
+        }
+    }
+
+    async pollEpubStatus() {
+        const pollInterval = 1000; // 1 second for faster feedback
+        let lastLogCount = 0;
+        
+        while (this.isEpubProcessing) {
+            try {
+                const response = await fetch('http://localhost:3005/api/epub/status');
+                if (!response.ok) {
+                    throw new Error('Failed to check conversion status');
+                }
+                
+                const status = await response.json();
+                
+                // Update EPUB processing state
+                this.isEpubProcessing = status.isRunning;
+                this.chapterCount = status.chapterCount || 0;
+                
+                // Add new logs (simplified)
+                if (status.logs && status.logs.length > lastLogCount) {
+                    for (let i = lastLogCount; i < status.logs.length; i++) {
+                        const logMessage = status.logs[i];
+                        let logType = 'info';
+                        
+                        if (logMessage.toLowerCase().includes('success') || logMessage.toLowerCase().includes('completed') || logMessage.includes('✓')) {
+                            logType = 'success';
+                        } else if (logMessage.toLowerCase().includes('error') || logMessage.toLowerCase().includes('failed') || logMessage.includes('✗')) {
+                            logType = 'error';
+                        }
+                        
+                        this.addLogEntry(logMessage, logType);
+                    }
+                    lastLogCount = status.logs.length;
+                }
+                
+                // Update text length from status
+                if (status.hasText && status.chapterCount > 0) {
+                    this.textLength = status.chapterCount * 3000; // Rough estimate: 3k chars per chapter
+                }
+                
+                this.updateUI();
+                
+                // Check if conversion completed
+                if (!status.isRunning) {
+                    this.isEpubProcessing = false;
+                    if (this.chapterCount > 0) {
+                        this.addLog(`✅ Conversion completed! Extracted ${this.chapterCount} chapters`, 'success');
+                        this.addLog('Click "Download Results" to get your text file', 'success');
+                    }
+                    this.updateUI();
+                    break;
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+                
+            } catch (error) {
+                this.addLog(`Status check error: ${error.message}`, 'error');
+                this.isEpubProcessing = false;
+                this.updateUI();
+                break;
+            }
+        }
+    }
+
+    resetEpubStats() {
+        this.chapterCount = 0;
+        this.textLength = 0;
+        this.epubStartTime = null;
     }
 }
 

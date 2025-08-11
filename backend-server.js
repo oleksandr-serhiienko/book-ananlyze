@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import config from './config.js';
 
 // Dynamic imports for modules that need to be loaded
-let TextProcessor, ModelClient, SQLGenerator, WordProcessor;
+let TextProcessor, ModelClient, SQLGenerator, WordProcessor, EPUBReader;
 
 // Load modules dynamically
 try {
@@ -24,6 +24,9 @@ try {
 
     const wordProcessorModule = await import('./wordProcessor.js');
     WordProcessor = wordProcessorModule.default;
+
+    const bookProcessorModule = await import('./bookProcessor.js');
+    EPUBReader = bookProcessorModule.EPUBReader;
 } catch (error) {
     console.error('Failed to load modules:', error);
 }
@@ -32,11 +35,23 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3001;
+const PORT = 3005;
 
 // Middleware
 app.use(express.json());
 app.use(express.static('.'));
+
+// CORS headers
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+    } else {
+        next();
+    }
+});
 
 // Global state for tracking processing
 let processingState = {
@@ -65,6 +80,15 @@ let wordProcessingState = {
     status: 'idle'
 };
 
+// Global state for EPUB processing
+let epubProcessingState = {
+    isRunning: false,
+    logs: [],
+    extractedText: '',
+    chapterCount: 0,
+    status: 'idle'
+};
+
 function addLog(message, type = 'info', error = null) {
     const timestamp = new Date().toISOString();
     let logEntry = `[${timestamp}] ${message}`;
@@ -83,6 +107,26 @@ function addLog(message, type = 'info', error = null) {
     
     processingState.logs.push(logEntry);
     console.log(`${type.toUpperCase()}: ${logEntry}`);
+}
+
+function addEpubLog(message, type = 'info', error = null) {
+    const timestamp = new Date().toISOString();
+    let logEntry = `[${timestamp}] ${message}`;
+    
+    // Add detailed error information if provided
+    if (error && type === 'error') {
+        logEntry += `\n  Error Details: ${error.message}`;
+        if (error.code) logEntry += `\n  Error Code: ${error.code}`;
+        if (error.errno) logEntry += `\n  Error Number: ${error.errno}`;
+        if (error.path) logEntry += `\n  File Path: ${error.path}`;
+        if (error.stack) {
+            const stackLines = error.stack.split('\n').slice(1, 4); // First 3 stack frames
+            logEntry += `\n  Stack Trace:\n    ${stackLines.join('\n    ')}`;
+        }
+    }
+    
+    epubProcessingState.logs.push(logEntry);
+    console.log(`EPUB ${type.toUpperCase()}: ${logEntry}`);
 }
 
 function resetProcessingState() {
@@ -1130,6 +1174,134 @@ ${Array.from({length: wordProcessingState.successfulWords}, (_, i) =>
 `;
 }
 
+// EPUB Processing endpoints
+app.post('/api/epub/extract', async (req, res) => {
+    const { filePath } = req.body;
+    
+    if (!filePath) {
+        return res.status(400).json({ error: 'EPUB file path is required' });
+    }
+    
+    // Check if already processing
+    if (epubProcessingState.isRunning) {
+        return res.status(409).json({ error: 'EPUB processing already in progress' });
+    }
+    
+    // Reset state for new processing
+    epubProcessingState = {
+        isRunning: true,
+        logs: [],
+        extractedText: '',
+        chapterCount: 0,
+        status: 'processing'
+    };
+    
+    addEpubLog(`Starting EPUB to text conversion: ${filePath}`);
+    
+    try {
+        // Check if file exists
+        if (!fs.existsSync(filePath)) {
+            throw new Error(`EPUB file not found: ${filePath}`);
+        }
+        
+        // Start the extraction process asynchronously
+        processEPUB(filePath).catch(error => {
+            addEpubLog(`EPUB processing failed: ${error.message}`, 'error', error);
+            epubProcessingState.status = 'error';
+            epubProcessingState.isRunning = false;
+        });
+        
+        res.json({
+            message: 'EPUB conversion started',
+            filePath
+        });
+        
+    } catch (error) {
+        addEpubLog(`Error starting EPUB extraction: ${error.message}`, 'error', error);
+        epubProcessingState.isRunning = false;
+        epubProcessingState.status = 'error';
+        
+        return res.status(400).json({
+            error: 'Failed to start EPUB conversion',
+            details: error.message,
+            path: filePath,
+            code: error.code || 'EPUB_ERROR'
+        });
+    }
+});
+
+app.get('/api/epub/status', (req, res) => {
+    res.json({
+        isRunning: epubProcessingState.isRunning,
+        status: epubProcessingState.status,
+        logs: epubProcessingState.logs,
+        chapterCount: epubProcessingState.chapterCount,
+        hasText: epubProcessingState.extractedText.length > 0
+    });
+});
+
+app.get('/api/epub/download/text', (req, res) => {
+    try {
+        if (!epubProcessingState.extractedText) {
+            return res.status(404).json({ error: 'No extracted text available' });
+        }
+        
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `extracted_text_${timestamp}.txt`;
+        
+        res.setHeader('Content-Type', 'text/plain');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(epubProcessingState.extractedText);
+        
+        addEpubLog(`Downloaded extracted text: ${filename}`);
+        
+    } catch (error) {
+        addEpubLog('Error downloading extracted text', 'error', error);
+        res.status(500).json({ error: 'Failed to download extracted text' });
+    }
+});
+
+async function processEPUB(filePath) {
+    const functionName = 'processEPUB';
+    addEpubLog(`Converting EPUB: ${path.basename(filePath)}`);
+    
+    try {
+        if (!EPUBReader) {
+            throw new Error('EPUB Reader not available');
+        }
+        
+        addEpubLog('Reading EPUB file...');
+        const reader = new EPUBReader(filePath);
+        
+        addEpubLog('Extracting text from chapters...');
+        const extractedText = await reader.readEPUB();
+        
+        if (!extractedText || extractedText.trim().length === 0) {
+            throw new Error('No text could be extracted from the EPUB file');
+        }
+        
+        // Store results in state
+        epubProcessingState.extractedText = extractedText;
+        epubProcessingState.chapterCount = reader.chapterCounter - 1;
+        epubProcessingState.status = 'completed';
+        epubProcessingState.isRunning = false;
+        
+        addEpubLog(`✅ Successfully converted ${reader.chapterCounter - 1} chapters`);
+        addEpubLog(`📄 Text length: ${extractedText.length.toLocaleString()} characters`);
+        
+        // Save to timestamped file in logs/txt/ folder
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const outputFile = `logs/txt/extracted_epub_${timestamp}.txt`;
+        fs.writeFileSync(outputFile, extractedText, 'utf8');
+        addEpubLog(`💾 Text saved to: ${outputFile}`);
+        
+    } catch (error) {
+        addEpubLog(`❌ Conversion failed: ${error.message}`, 'error', error);
+        epubProcessingState.isRunning = false;
+        epubProcessingState.status = 'error';
+    }
+}
+
 // Start server
 app.listen(PORT, () => {
     console.log(`Backend server running at http://localhost:${PORT}`);
@@ -1144,4 +1316,7 @@ app.listen(PORT, () => {
     console.log('  POST /api/words/stop - Stop word processing');
     console.log('  GET  /api/download/sql - Download SQL results');
     console.log('  GET  /api/words/download/sql - Download word SQL results');
+    console.log('  POST /api/epub/extract - Extract text from EPUB file');
+    console.log('  GET  /api/epub/status - Get EPUB processing status');
+    console.log('  GET  /api/epub/download/text - Download extracted text');
 });

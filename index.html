@@ -19,11 +19,12 @@
                 <div class="tabs">
                     <button id="sentenceTab" class="tab-button active">Sentence Processing</button>
                     <button id="wordTab" class="tab-button">Word Processing</button>
+                    <button id="epubTab" class="tab-button">EPUB Processor</button>
                 </div>
             </section>
 
             <section class="controls">
-                <div class="input-group">
+                <div class="input-group" id="textFileGroup">
                     <label for="textFile">Text File Path:</label>
                     <div class="file-input-group">
                         <input type="text" id="textFile" placeholder="Enter path to text file">
@@ -44,6 +45,13 @@
                     <label>Processing Mode:</label>
                     <span style="color: #2d3748; font-weight: 500;">Word Extraction & Translation</span>
                     <p style="color: #4a5568; font-size: 0.9em; margin: 5px 0 0 0;">Extract unique words, check database, and translate new words concurrently</p>
+                </div>
+
+                <!-- EPUB Processing Mode Info -->
+                <div class="input-group" id="epubModeInfo" style="display: none;">
+                    <label>Processing Mode:</label>
+                    <span style="color: #2d3748; font-weight: 500;">EPUB to Text Converter</span>
+                    <p style="color: #4a5568; font-size: 0.9em; margin: 5px 0 0 0;">Convert EPUB books to plain text files (.txt)</p>
                 </div>
 
                 <!-- Database Configuration for Word Processing -->
@@ -71,6 +79,22 @@
                                 </div>
                                 <p style="color: #718096; font-size: 0.8em; margin: 8px 0 0 0; font-style: italic;">💡 Tip: "No Database" will process all words without checking existing entries</p>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- EPUB File Configuration -->
+                <div class="input-group" id="epubConfigGroup" style="display: none;">
+                    <h3 style="color: #4a5568; margin-bottom: 15px;">EPUB File Configuration</h3>
+                    <div style="background: #f7fafc; padding: 15px; border-radius: 8px;">
+                        <div>
+                            <label for="epubFile">EPUB File Path:</label>
+                            <div class="file-input-group">
+                                <input type="text" id="epubFile" placeholder="Enter path to EPUB file" style="width: 100%;">
+                                <input type="file" id="epubFileInput" accept=".epub" style="display: none;">
+                                <button type="button" id="browseEpubBtn" class="btn-browse">Browse...</button>
+                            </div>
+                            <p style="color: #4a5568; font-size: 0.85em; margin: 5px 0 0 0;">Select an EPUB file to extract text from (.epub files)</p>
                         </div>
                     </div>
                 </div>
@@ -121,7 +145,7 @@
                 <div class="button-group">
                     <button id="startProcessing" class="btn-primary">Start Processing</button>
                     <button id="stopProcessing" class="btn-secondary" disabled>Stop Processing</button>
-                    <button id="downloadSQL" class="btn-success" disabled>Download SQL</button>
+                    <button id="downloadSQL" class="btn-success" disabled>Download Results</button>
                 </div>
             </section>
 
@@ -198,6 +222,26 @@
                     <div class="result-card">
                         <h3>Processing Time</h3>
                         <span id="wordProcessingTime" class="result-number">0s</span>
+                    </div>
+                </div>
+
+                <!-- EPUB Processing Results -->
+                <div class="results-grid" id="epubResults" style="display: none;">
+                    <div class="result-card">
+                        <h3>Chapters Extracted</h3>
+                        <span id="chapterCount" class="result-number">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Text Length</h3>
+                        <span id="textLength" class="result-number">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Status</h3>
+                        <span id="epubStatus" class="result-number">Ready</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>File Size</h3>
+                        <span id="epubFileSize" class="result-number">-</span>
                     </div>
                 </div>
             </section>
