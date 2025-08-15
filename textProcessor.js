@@ -85,22 +85,9 @@ class TextProcessor {
             }
             
         } catch (jsonError) {
-            // Fallback to old pipe-delimited format
-            const parts = responseContent.split('|');
-            
-            if (parts.length >= 4) {
-                let germanAnnotated = parts[1].trim();
-                if (germanAnnotated.endsWith(',')) {
-                    germanAnnotated = germanAnnotated.slice(0, -1).trim();
-                }
-                const englishAnnotated = parts[3].trim();
-                return [germanAnnotated, englishAnnotated, errors];
-            } else {
-                errors.push(`Failed to parse as JSON: ${jsonError.message}`);
-                errors.push(`Failed to parse as pipe-delimited: Expected at least 4 parts when splitting by '|', got ${parts.length}.`);
-                errors.push(`Full response: '${responseContent.substring(0, 200)}...'`);
-                return [null, null, errors];
-            }
+            errors.push(`Failed to parse as JSON: ${jsonError.message}`);
+            errors.push(`Full response: '${responseContent.substring(0, 200)}...'`);
+            return [null, null, errors];
         }
     }
 }

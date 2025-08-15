@@ -1,6 +1,6 @@
 export default {
     // Processing Configuration
-    MAX_RETRIES_SENTENCE: 3,
+    MAX_RETRIES_SENTENCE: 5,
     RETRY_DELAY_SECONDS_SENTENCE: 10000, // milliseconds
     
     // Concurrent Processing Configuration

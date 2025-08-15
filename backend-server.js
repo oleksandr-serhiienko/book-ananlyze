@@ -1039,7 +1039,12 @@ async function processWords(filePath, databasePath, aiConfig, translationConfig)
             addWordLog(`WordProcessor will use: Project ${customConfig.PROJECT_ID}, Model ${customConfig.MODEL_ENDPOINT}`);
         }
 
-        wordProcessingState.currentWordProcessor = new WordProcessor(databasePath, customConfig);
+        // Create custom logger function that sends logs to UI
+        const customLogger = (message) => {
+            addWordLog(message);
+        };
+        
+        wordProcessingState.currentWordProcessor = new WordProcessor(databasePath, customConfig, customLogger);
 
         // Update translation configuration if provided (like sentence processing)
         if (translationConfig) {

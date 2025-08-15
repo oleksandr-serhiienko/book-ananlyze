@@ -5,18 +5,21 @@ import config from './config.js';
 import ModelClient from './modelClient.js';
 
 class WordProcessor {
-    constructor(customDatabasePath = null, customConfig = null) {
+    constructor(customDatabasePath = null, customConfig = null, customLogger = null) {
         // Use custom config if provided, otherwise use default config
         const finalConfig = customConfig || config;
         this.modelClient = new ModelClient(finalConfig);
         
+        // Set up custom logger if provided
+        this.customLogger = customLogger;
+        
         // Log the configuration being used
-        console.log(`WordProcessor initialized with:`);
-        console.log(`  Project ID: ${finalConfig.PROJECT_ID}`);
-        console.log(`  Location: ${finalConfig.LOCATION}`);
-        console.log(`  Model Endpoint: ${finalConfig.MODEL_ENDPOINT}`);
-        console.log(`  Source Language: ${finalConfig.DEFAULT_SOURCE_LANGUAGE}`);
-        console.log(`  Target Language: ${finalConfig.DEFAULT_TARGET_LANGUAGE}`);
+        this.logProgress(`WordProcessor initialized with:`);
+        this.logProgress(`  Project ID: ${finalConfig.PROJECT_ID}`);
+        this.logProgress(`  Location: ${finalConfig.LOCATION}`);
+        this.logProgress(`  Model Endpoint: ${finalConfig.MODEL_ENDPOINT}`);
+        this.logProgress(`  Source Language: ${finalConfig.DEFAULT_SOURCE_LANGUAGE}`);
+        this.logProgress(`  Target Language: ${finalConfig.DEFAULT_TARGET_LANGUAGE}`);
         this.isProcessing = false;
         this.sqlInsertStatements = [];
         
@@ -25,6 +28,7 @@ class WordProcessor {
         this.errorLogFile = `logs/errors/word_errors_${timestamp}.log`;
         this.successLogFile = `logs/responses/word_responses_${timestamp}.jsonl`;
         this.sqlOutputFile = `logs/sql/word_results_${timestamp}.sql`;
+        this.progressLogFile = `logs/progress/word_progress_${timestamp}.log`;
         
         // Configuration constants
         this.MAX_RETRIES = 5;
@@ -38,6 +42,7 @@ class WordProcessor {
         fs.mkdirSync('logs/errors', { recursive: true });
         fs.mkdirSync('logs/responses', { recursive: true });
         fs.mkdirSync('logs/sql', { recursive: true });
+        fs.mkdirSync('logs/progress', { recursive: true });
         
         // Add schema creation SQL
         this.sqlInsertStatements.push(this.generateSchemaSQL());
@@ -46,10 +51,28 @@ class WordProcessor {
         fs.writeFileSync(this.errorLogFile, `Word Processing Error Log - Run: ${new Date().toString()}\n${"=".repeat(40)}\n`, 'utf8');
         fs.writeFileSync(this.successLogFile, `# Log of successfully processed model JSON responses - Run: ${new Date().toString()}\n`, 'utf8');
         fs.appendFileSync(this.successLogFile, `# Each subsequent line is a JSON object: {'queried_word': ..., 'timestamp': ..., 'response_data': ...}\n`, 'utf8');
+        fs.writeFileSync(this.progressLogFile, `Word Processing Progress Log - Run: ${new Date().toString()}\n${"=".repeat(40)}\n`, 'utf8');
     }
 
     stop() {
         this.isProcessing = false;
+    }
+
+    logProgress(message) {
+        // Use custom logger if provided (for backend integration), otherwise log to console
+        if (this.customLogger) {
+            this.customLogger(message);
+        } else {
+            console.log(message);
+        }
+        
+        // Always log to progress file as well
+        try {
+            const timestamp = new Date().toISOString();
+            fs.appendFileSync(this.progressLogFile, `[${timestamp}] ${message}\n`, 'utf8');
+        } catch (error) {
+            // Silent fail for logging errors to avoid recursion
+        }
     }
 
     getLanguageCode(languageName) {
@@ -113,7 +136,7 @@ class WordProcessor {
             const text = fs.readFileSync(filePath, 'utf-8').toLowerCase();
             const words = text.match(/\b[a-zäöüßA-ZÄÖÜ]+\b/g) || [];
             const uniqueWords = [...new Set(words)].sort();
-            console.log(`Found ${uniqueWords.length} unique words in the text file.`);
+            this.logProgress(`Found ${uniqueWords.length} unique words in the text file.`);
             return uniqueWords;
         } catch (error) {
             if (error.code === 'ENOENT') {
@@ -132,11 +155,11 @@ class WordProcessor {
         
         // Skip database check if no database path provided (No Database option)
         if (!dbPath || dbPath.trim() === '') {
-            console.log('No database path provided - processing all words without database check');
+            this.logProgress('No database path provided - processing all words without database check');
             return wordsFromText;
         }
         
-        console.log(`Checking words against database: ${dbPath}`);
+        this.logProgress(`Checking words against database: ${dbPath}`);
         
         return new Promise((resolve, reject) => {
             const newWordsToQuery = [];
@@ -150,7 +173,7 @@ class WordProcessor {
                         return;
                     }
                     
-                    console.log(`Successfully connected to database: ${dbPath}`);
+                    this.logProgress(`Successfully connected to database: ${dbPath}`);
                     
                     db.all("SELECT DISTINCT queried_word FROM words", (err, rows) => {
                         if (err) {
@@ -169,7 +192,7 @@ class WordProcessor {
                             }
                         }
                         
-                        console.log(`Identified ${newWordsToQuery.length} words from text file that are potentially new to the database (based on 'queried_word' check).`);
+                        this.logProgress(`Identified ${newWordsToQuery.length} words from text file that are potentially new to the database (based on 'queried_word' check).`);
                         
                         db.close((err) => {
                             if (err) {
@@ -305,7 +328,7 @@ class WordProcessor {
         const textPrompt = `${sourceLanguageCode}-${targetLanguageCode} |${originalWordToQuery}|`;
         
         // Log the exact prompt being sent to the model
-        console.log(`Sending to model: "${textPrompt}"`);
+        this.logProgress(`Sending to model: "${textPrompt}"`);
         
         try {
             // Call the model directly with the correct prompt format for word processing
@@ -340,8 +363,8 @@ class WordProcessor {
         let fullRawStreamedOutputForLogging = "";
         
         for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
-            console.log(`Processing '${originalWordToQuery}', Attempt ${attempt}/${this.MAX_RETRIES}...`);
-            console.log(`Language settings: ${this.modelClient.sourceLanguage} → ${this.modelClient.targetLanguage}`);
+            this.logProgress(`Processing '${originalWordToQuery}', Attempt ${attempt}/${this.MAX_RETRIES}...`);
+            this.logProgress(`Language settings: ${this.modelClient.sourceLanguage} → ${this.modelClient.targetLanguage}`);
             
             try {
                 const fullRawStreamedOutput = await this.getTranslationFromModel(originalWordToQuery);
@@ -362,7 +385,7 @@ class WordProcessor {
                 const assistantContentJson = this.parseModelOutputForAssistantContent(fullRawStreamedOutput);
 
                 if (assistantContentJson) {
-                    console.log(`Successfully parsed model output for '${originalWordToQuery}' on attempt ${attempt}.`);
+                    this.logProgress(`Successfully parsed model output for '${originalWordToQuery}' on attempt ${attempt}.`);
                     if (this.extractAndGenerateSQLForWord(assistantContentJson, originalWordToQuery)) {
                         try {
                             const logEntry = {
@@ -376,7 +399,7 @@ class WordProcessor {
                         }
                         return true;
                     } else {
-                        console.log(`Failed to generate SQL for '${originalWordToQuery}' (logged).`);
+                        this.logProgress(`Failed to generate SQL for '${originalWordToQuery}' (logged).`);
                         return false;
                     }
                 } else {
@@ -421,7 +444,7 @@ class WordProcessor {
 
     saveProgress() {
         fs.writeFileSync(this.sqlOutputFile, this.sqlInsertStatements.join("\n"), 'utf8');
-        console.log(`SQL statements saved to ${this.sqlOutputFile}`);
+        this.logProgress(`SQL statements saved to ${this.sqlOutputFile}`);
     }
 
     async processConcurrent(wordsToProcess) {
@@ -435,28 +458,28 @@ class WordProcessor {
         const queue = [...wordsToProcess];
         let activeWorkers = 0;
 
-        console.log(`Starting concurrent processing with ${config.CONCURRENT_WORKERS} workers for ${queue.length} words`);
+        this.logProgress(`Starting concurrent processing with ${config.CONCURRENT_WORKERS} workers for ${queue.length} words`);
 
         // Create worker function
         const processWorker = async (workerId) => {
             activeWorkers++;
-            console.log(`Worker ${workerId} started`);
+            this.logProgress(`Worker ${workerId} started`);
 
             while (queue.length > 0 && this.isProcessing) {
                 const word = queue.shift();
                 if (!word) break;
 
                 try {
-                    console.log(`Worker ${workerId}: Processing '${word}' (${results.processed + 1}/${wordsToProcess.length})`);
+                    this.logProgress(`Worker ${workerId}: Processing '${word}' (${results.processed + 1}/${wordsToProcess.length})`);
                     
                     const success = await this.processWordWithRetries(word);
                     
                     if (success) {
                         results.successfulWords++;
-                        console.log(`Successfully processed and generated SQL for '${word}'.`);
+                        this.logProgress(`Successfully processed and generated SQL for '${word}'.`);
                     } else {
                         results.failedWords++;
-                        console.log(`Failed to process '${word}' after retries.`);
+                        this.logProgress(`Failed to process '${word}' after retries.`);
                     }
                     
                     results.processed++;
@@ -464,7 +487,7 @@ class WordProcessor {
                     // Save progress periodically
                     if (results.processed % 10 === 0) {
                         this.saveProgress();
-                        console.log(`Progress saved after ${results.processed} words`);
+                        this.logProgress(`Progress saved after ${results.processed} words`);
                     }
 
                     // Small delay to prevent overwhelming the API
@@ -474,19 +497,19 @@ class WordProcessor {
 
                     // Optional: Short delay to avoid hitting rate limits
                     if ((results.processed) % 10 === 0 && wordsToProcess.length > 10) {
-                        console.log(`Pausing for ${this.RETRY_DELAY_SECONDS / 1000}s to respect potential rate limits...`);
+                        this.logProgress(`Pausing for ${this.RETRY_DELAY_SECONDS / 1000}s to respect potential rate limits...`);
                         await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_SECONDS));
                     }
 
                 } catch (error) {
-                    console.log(`Worker ${workerId}: Error processing word: ${error.message}`);
+                    this.logProgress(`Worker ${workerId}: Error processing word: ${error.message}`);
                     results.failedWords++;
                     results.processed++;
                 }
             }
 
             activeWorkers--;
-            console.log(`Worker ${workerId} finished`);
+            this.logProgress(`Worker ${workerId} finished`);
         };
 
         // Start workers
@@ -499,7 +522,7 @@ class WordProcessor {
         // Wait for all workers to complete
         await Promise.all(workers);
 
-        console.log(`Concurrent processing completed: ${results.successfulWords} successful, ${results.failedWords} failed`);
+        this.logProgress(`Concurrent processing completed: ${results.successfulWords} successful, ${results.failedWords} failed`);
         return results;
     }
 
@@ -512,7 +535,7 @@ class WordProcessor {
         const allWordsFromText = this.readAndExtractWordsFromTextFile(textPath);
 
         if (allWordsFromText.length === 0) {
-            console.log("No words extracted from text file. Exiting.");
+            this.logProgress("No words extracted from text file. Exiting.");
             this.isProcessing = false;
             return { success: false, error: "No words extracted from text file" };
         }
@@ -521,7 +544,7 @@ class WordProcessor {
         const wordsToProcessQuery = await this.getNewWordsNotInDB(allWordsFromText, this.DB_NAME);
 
         if (wordsToProcessQuery.length === 0) {
-            console.log("No new words to process. All extracted words might already be in the database (based on 'queried_word' check).");
+            this.logProgress("No new words to process. All extracted words might already be in the database (based on 'queried_word' check).");
             this.saveProgress();
             this.isProcessing = false;
             return { 
@@ -533,32 +556,33 @@ class WordProcessor {
             };
         }
 
-        console.log(`\nAttempting translation for ${wordsToProcessQuery.length} new/unchecked words and generating SQL inserts:`);
+        this.logProgress(`\nAttempting translation for ${wordsToProcessQuery.length} new/unchecked words and generating SQL inserts:`);
         
         try {
-            console.log("GenAI Client initialized successfully.");
+            this.logProgress("GenAI Client initialized successfully.");
             
             // Use concurrent processing
             const results = await this.processConcurrent(wordsToProcessQuery);
             const successfulWords = results.successfulWords;
             const failedWordsCount = results.failedWords;
 
-            console.log(`\n--- Word Processing Summary ---`);
-            console.log(`Successfully processed and generated SQL for ${successfulWords} words.`);
+            this.logProgress(`\n--- Word Processing Summary ---`);
+            this.logProgress(`Successfully processed and generated SQL for ${successfulWords} words.`);
             if (failedWordsCount > 0) {
-                console.log(`Failed to process ${failedWordsCount} words. Check ${this.errorLogFile}.`);
+                this.logProgress(`Failed to process ${failedWordsCount} words. Check ${this.errorLogFile}`);
             }
             
             this.saveProgress();
-            console.log(`\nAll SQL statements (schema + inserts) saved to ${this.sqlOutputFile}`);
+            this.logProgress(`\nAll SQL statements (schema + inserts) saved to ${this.sqlOutputFile}`);
             
             if (wordsToProcessQuery.length > 0 && this.sqlInsertStatements.length <= 1) {
-                console.log(`Note: No successful word processing. The SQL file '${this.sqlOutputFile}' might only contain the schema.`);
+                this.logProgress(`Note: No successful word processing. The SQL file '${this.sqlOutputFile}' might only contain the schema.`);
             }
 
-            console.log(`Error log: ${this.errorLogFile}`);
-            console.log(`Successful JSON responses log: ${this.successLogFile}`);
-            console.log("Word processing script finished.");
+            this.logProgress(`Error log: ${this.errorLogFile}`);
+            this.logProgress(`Successful JSON responses log: ${this.successLogFile}`);
+            this.logProgress(`Progress log: ${this.progressLogFile}`);
+            this.logProgress("Word processing script finished.");
             
             this.isProcessing = false;
             return {
@@ -570,7 +594,7 @@ class WordProcessor {
             };
             
         } catch (error) {
-            console.log(`\nCRITICAL SCRIPT ERROR (word processing): ${error.message}`);
+            this.logProgress(`\nCRITICAL SCRIPT ERROR (word processing): ${error.message}`);
             this.logError("CRITICAL SCRIPT ERROR", error.message);
             this.saveProgress();
             this.isProcessing = false;

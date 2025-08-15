@@ -64,9 +64,15 @@ class SentenceProcessor {
                     console.log(`    Successfully processed C${lineData.chapter_id}_S${lineData.line_number}.`);
                     return true;
                 } else {
-                    this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response", rawModelResponse, parseErrors, this.errorLogFile);
-                    this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), rawModelResponse);
-                    return false;
+                    console.log(`    Parse failed on attempt ${attempt}: ${parseErrors?.join('; ') || 'Unknown parse error'}`);
+                    if (attempt < config.MAX_RETRIES_SENTENCE) {
+                        await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
+                        continue;
+                    } else {
+                        this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response after max retries", rawModelResponse, parseErrors, this.errorLogFile);
+                        this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), rawModelResponse);
+                        return false;
+                    }
                 }
                 
             } catch (error) {

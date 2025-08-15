@@ -16,7 +16,8 @@ class SQLGenerator {
             original_text TEXT,
             original_parsed_text TEXT,     -- This will store the model's German annotated output
             translation_parsed_text TEXT,  -- This will store the model's English annotated output
-            processing_errors TEXT         -- Optional, for logging issues directly in the row
+            processing_errors TEXT,        -- Optional, for logging issues directly in the row
+            updated_at DATETIME NULL
         );
         `,
             "CREATE INDEX IF NOT EXISTS idx_book_sentences_chapter_sentence ON book_sentences(chapter_id, sentence_number);"
@@ -33,27 +34,31 @@ class SQLGenerator {
 
     addSuccessfulLineSQL(chapterId, lineNumber, originalText, germanAnnotated, englishAnnotated, errors = null) {
         const errorString = errors && errors.length > 0 ? errors.join('; ') : null;
+        const currentDateTime = new Date().toISOString().replace('T', ' ').replace('Z', '');
         this.insertStatements.push(
-            `INSERT INTO book_sentences (chapter_id, sentence_number, original_text, original_parsed_text, translation_parsed_text, processing_errors) VALUES (` +
+            `INSERT INTO book_sentences (chapter_id, sentence_number, original_text, original_parsed_text, translation_parsed_text, processing_errors, updated_at) VALUES (` +
             `${chapterId}, ` +
             `${lineNumber}, ` +
             `${this.escapeSQLString(originalText)}, ` +
             `${this.escapeSQLString(germanAnnotated)}, ` +
             `${this.escapeSQLString(englishAnnotated)}, ` +
-            `${this.escapeSQLString(errorString)}` +
+            `${this.escapeSQLString(errorString)}, ` +
+            `${this.escapeSQLString(currentDateTime)}` +
             `);`
         );
     }
 
     addFailedLineSQL(chapterId, lineNumber, originalText, errorString, rawResponse = null) {
+        const currentDateTime = new Date().toISOString().replace('T', ' ').replace('Z', '');
         this.insertStatements.push(
-            `INSERT INTO book_sentences (chapter_id, sentence_number, original_text, original_parsed_text, translation_parsed_text, processing_errors) VALUES (` +
+            `INSERT INTO book_sentences (chapter_id, sentence_number, original_text, original_parsed_text, translation_parsed_text, processing_errors, updated_at) VALUES (` +
             `${chapterId}, ` +
             `${lineNumber}, ` +
             `${this.escapeSQLString(originalText)}, ` +
             `NULL, ` +
             `NULL, ` +
-            `${this.escapeSQLString(errorString + (rawResponse ? ' | RawResp: ' + rawResponse.substring(0, 100) : ''))}` +
+            `${this.escapeSQLString(errorString + (rawResponse ? ' | RawResp: ' + rawResponse.substring(0, 100) : ''))}, ` +
+            `${this.escapeSQLString(currentDateTime)}` +
             `);`
         );
     }
