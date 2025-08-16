@@ -190,9 +190,6 @@ class EPUBReader {
             .replace(/[ \t]+/g, ' ') // Replace multiple spaces/tabs with single space
             .replace(/\n[ \t]+/g, '\n') // Remove spaces after newlines
             .replace(/[ \t]+\n/g, '\n') // Remove spaces before newlines
-            .replace(/\n{3,}/g, '\n\n') // Replace 3+ newlines with double newline (paragraph breaks)
-            .replace(/^\n+/, '') // Remove leading newlines
-            .replace(/\n+$/, '') // Remove trailing newlines
             .trim();
     }
 

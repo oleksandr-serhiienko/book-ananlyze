@@ -26,7 +26,7 @@ try {
     WordProcessor = wordProcessorModule.default;
 
     const bookProcessorModule = await import('./bookProcessor.js');
-    EPUBReader = bookProcessorModule.EPUBReader;
+    EPUBReader = bookProcessorModule.default;
 } catch (error) {
     console.error('Failed to load modules:', error);
 }
@@ -687,6 +687,7 @@ async function processChapters(chapters, filePath) {
         fs.mkdirSync('logs/sql', { recursive: true });
         
         // Initialize SQL generator for this session
+        sqlGenerator.clear(); // Clear any previous data
         sqlGenerator.initializeSchema();
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const errorLogFile = `logs/errors/sentence_processing_errors_${timestamp}.log`;
@@ -836,13 +837,20 @@ async function processBatchLinesWithAI(lineDataArray, chapterNumber, errorLogFil
                         sqlGenerator.addSuccessfulLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, germanAnnotated, englishAnnotated, parseErrors);
                         addLog(`    Worker ${workerId} - ✓ Successfully processed C${lineData.chapter_id}_L${lineData.line_number}`);
                         success = true;
+                        break; // Exit retry loop on success
                     } else {
                         addLog(`    Worker ${workerId} - ✗ Failed to parse C${lineData.chapter_id}_L${lineData.line_number}: ${parseErrors.join('; ')}`, 'error');
-                        modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response", rawModelResponse, parseErrors, errorLogFile);
-                        sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), rawModelResponse);
+                        if (attempt < config.MAX_RETRIES_SENTENCE) {
+                            addLog(`    Worker ${workerId} - Retrying parsing in ${config.RETRY_DELAY_SECONDS_SENTENCE}ms...`);
+                            await modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
+                            continue; // Retry with new AI request
+                        } else {
+                            addLog(`    Worker ${workerId} - Failed to parse after ${config.MAX_RETRIES_SENTENCE} attempts`, 'error');
+                            modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response after max retries", rawModelResponse, parseErrors, errorLogFile);
+                            sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), rawModelResponse);
+                            break; // Exit retry loop after max attempts
+                        }
                     }
-                    
-                    break; // Exit retry loop
                     
                 } catch (error) {
                     addLog(`    Worker ${workerId} - ✗ Error processing C${lineData.chapter_id}_L${lineData.line_number} on attempt ${attempt}`, 'error');
