@@ -97,36 +97,14 @@ class WordProcessor {
             "PRAGMA foreign_keys = ON;",
             `
         CREATE TABLE IF NOT EXISTS words (
-            word_id INTEGER PRIMARY KEY,
-            queried_word TEXT NOT NULL,
-            base_form_json JSON NOT NULL,
-            primary_type TEXT, 
-            info_json JSON,
-            UNIQUE(queried_word)
+            id INTEGER PRIMARY KEY,
+            word TEXT NOT NULL,
+            base_form TEXT,
+            wordInfo TEXT,
+            UNIQUE(word)
         );
         `,
-            `
-        CREATE TABLE IF NOT EXISTS word_translations (
-            translation_id INTEGER PRIMARY KEY,
-            word_id INTEGER NOT NULL,
-            meaning TEXT NOT NULL,
-            additional_info TEXT,
-            meta_type TEXT, 
-            FOREIGN KEY (word_id) REFERENCES words(word_id) ON DELETE CASCADE
-        );
-        `,
-            `
-        CREATE TABLE IF NOT EXISTS translation_examples (
-            example_id INTEGER PRIMARY KEY,
-            translation_id INTEGER NOT NULL,
-            source_text TEXT NOT NULL,
-            target_text TEXT NOT NULL,
-            FOREIGN KEY (translation_id) REFERENCES word_translations(translation_id) ON DELETE CASCADE
-        );
-        `,
-            "CREATE INDEX IF NOT EXISTS idx_words_queried_word ON words(queried_word);",
-            "CREATE INDEX IF NOT EXISTS idx_word_translations_word_id ON word_translations(word_id);",
-            "CREATE INDEX IF NOT EXISTS idx_translation_examples_translation_id ON translation_examples(translation_id);"
+            "CREATE INDEX IF NOT EXISTS idx_words_word ON words(word);"
         ];
         return schemaSqls.join("\n") + "\n\n";
     }
@@ -221,81 +199,82 @@ class WordProcessor {
         return text.replace(/\|([^|]+)\|/g, '<em>$1</em>');
     }
 
-    extractAndGenerateSQLForWord(assistantContentJson, originalQueriedWord) {
+    extractAndGenerateSQLForWord(assistantContentJson, originalQueriedWord, rawResponse) {
         try {
+            // Validate that we have a properly parsed JSON with expected structure
+            if (!assistantContentJson || typeof assistantContentJson !== 'object') {
+                this.logError(originalQueriedWord, `Invalid or missing JSON content`, rawResponse);
+                return false;
+            }
+
+            // Validate expected JSON structure
             const wordInfoFromModel = assistantContentJson.word_info;
-            const allTranslationsFromModel = assistantContentJson.translations || [];
+            if (!wordInfoFromModel || typeof wordInfoFromModel !== 'object') {
+                this.logError(originalQueriedWord, `Missing or invalid word_info in JSON response`, assistantContentJson);
+                return false;
+            }
 
-            const dbQueriedWord = originalQueriedWord;
-            const dbBaseFormJsonStr = JSON.stringify(wordInfoFromModel.base_form);
-            const dbInfoJsonStr = JSON.stringify(wordInfoFromModel.additional_info);
-            
-            let dbPrimaryType = null;
-            const baseFormContent = wordInfoFromModel.base_form;
-            
-            if (typeof baseFormContent === 'object' && baseFormContent !== null) {
-                const typesPresent = Object.keys(baseFormContent);
-                if (typesPresent.length > 0) {
-                    dbPrimaryType = typesPresent.sort().join("/");
-                }
-            } else if (typeof baseFormContent === 'string') {
-                const additionalInfoContent = wordInfoFromModel.additional_info;
-                if (typeof additionalInfoContent === 'object' && additionalInfoContent !== null) {
-                    if (additionalInfoContent.type) {
-                        dbPrimaryType = additionalInfoContent.type;
-                    } else if (additionalInfoContent.usage && !dbPrimaryType) {
-                        dbPrimaryType = additionalInfoContent.usage;
-                    }
-                }
+            // Check for required fields in word_info
+            if (!wordInfoFromModel.hasOwnProperty('base_form') || 
+                !wordInfoFromModel.hasOwnProperty('definition') || 
+                !wordInfoFromModel.hasOwnProperty('additional_info')) {
+                this.logError(originalQueriedWord, `Missing required fields in word_info (base_form, definition, additional_info)`, assistantContentJson);
+                return false;
+            }
+
+            // Validate translations array
+            if (!assistantContentJson.translations || !Array.isArray(assistantContentJson.translations)) {
+                this.logError(originalQueriedWord, `Missing or invalid translations array in JSON response`, assistantContentJson);
+                return false;
             }
             
-            if (!dbPrimaryType) dbPrimaryType = "unknown";
-
-            this.sqlInsertStatements.push(
-                `INSERT OR IGNORE INTO words (queried_word, base_form_json, primary_type, info_json) VALUES ` +
-                `(${this.escapeSQLString(dbQueriedWord)}, ${this.escapeSQLString(dbBaseFormJsonStr)}, ${this.escapeSQLString(dbPrimaryType)}, ${this.escapeSQLString(dbInfoJsonStr)});`
-            );
-            
-            const wordIdSubquery = `(SELECT word_id FROM words WHERE queried_word = ${this.escapeSQLString(dbQueriedWord)})`;
-            
-            for (const transData of allTranslationsFromModel) {
-                const meaning = transData.meaning;
-                const additionalInfoTrans = transData.additionalInfo;
-                const metaTypeTrans = transData.type;
-
-                if (!meaning) {
-                    this.logError(originalQueriedWord, `Skipping a translation due to missing meaning key or null value.`, transData);
-                    continue;
+            // Extract base_form - handle both string and object formats
+            let baseForm = null;
+            if (wordInfoFromModel.base_form) {
+                if (typeof wordInfoFromModel.base_form === 'string') {
+                    baseForm = wordInfoFromModel.base_form;
+                } else if (typeof wordInfoFromModel.base_form === 'object') {
+                    // If it's an object, try to extract a meaningful string value
+                    const baseFormObj = wordInfoFromModel.base_form;
+                    // Try common keys first, then fall back to first value
+                    baseForm = baseFormObj.nominative || baseFormObj.infinitive || 
+                              baseFormObj.form || Object.values(baseFormObj)[0] || 
+                              JSON.stringify(baseFormObj);
                 }
+            }
 
-                this.sqlInsertStatements.push(
-                    `INSERT INTO word_translations (word_id, meaning, additional_info, meta_type) VALUES ` +
-                    `(${wordIdSubquery}, ${this.escapeSQLString(meaning)}, ${this.escapeSQLString(additionalInfoTrans)}, ${this.escapeSQLString(metaTypeTrans)});`
-                );
+            // Parse and process the raw response to add <em> tags to examples
+            let processedResponse;
+            try {
+                const responseData = JSON.parse(rawResponse);
                 
-                const translationIdSubquery = (
-                    `(SELECT translation_id FROM word_translations WHERE word_id = ${wordIdSubquery} ` +
-                    `AND meaning = ${this.escapeSQLString(meaning)} ` +
-                    `AND COALESCE(additional_info, 'NULL_MARKER') = COALESCE(${this.escapeSQLString(additionalInfoTrans)}, 'NULL_MARKER') ` +
-                    `AND COALESCE(meta_type, 'NULL_MARKER') = COALESCE(${this.escapeSQLString(metaTypeTrans)}, 'NULL_MARKER') ` +
-                    `ORDER BY translation_id DESC LIMIT 1)`
-                );
-
-                for (const exData of transData.examples || []) {
-                    const sourceTextRaw = exData.source;
-                    const targetTextRaw = exData.target;
-
-                    if (sourceTextRaw && targetTextRaw) {
-                        const sourceTextTransformed = this.transformExampleText(sourceTextRaw);
-                        const targetTextTransformed = this.transformExampleText(targetTextRaw);
-
-                        this.sqlInsertStatements.push(
-                            `INSERT INTO translation_examples (translation_id, source_text, target_text) VALUES ` +
-                            `(${translationIdSubquery}, ${this.escapeSQLString(sourceTextTransformed)}, ${this.escapeSQLString(targetTextTransformed)});`
-                        );
-                    }
+                // Process examples in translations to add <em> tags
+                if (responseData.translations && Array.isArray(responseData.translations)) {
+                    responseData.translations.forEach(translation => {
+                        if (translation.examples && Array.isArray(translation.examples)) {
+                            translation.examples.forEach(example => {
+                                if (example.source) {
+                                    example.source = this.transformExampleText(example.source);
+                                }
+                                if (example.target) {
+                                    example.target = this.transformExampleText(example.target);
+                                }
+                            });
+                        }
+                    });
                 }
+                
+                processedResponse = JSON.stringify(responseData);
+            } catch (jsonError) {
+                this.logError(originalQueriedWord, `Raw response is not valid JSON: ${jsonError.message}`, rawResponse);
+                return false;
             }
+
+            // Simple INSERT into the single words table
+            this.sqlInsertStatements.push(
+                `INSERT OR IGNORE INTO words (word, base_form, wordInfo) VALUES ` +
+                `(${this.escapeSQLString(originalQueriedWord)}, ${this.escapeSQLString(baseForm)}, ${this.escapeSQLString(processedResponse)});`
+            );
             
             return true;
 
@@ -386,7 +365,7 @@ class WordProcessor {
 
                 if (assistantContentJson) {
                     this.logProgress(`Successfully parsed model output for '${originalWordToQuery}' on attempt ${attempt}.`);
-                    if (this.extractAndGenerateSQLForWord(assistantContentJson, originalWordToQuery)) {
+                    if (this.extractAndGenerateSQLForWord(assistantContentJson, originalWordToQuery, fullRawStreamedOutput)) {
                         try {
                             const logEntry = {
                                 queried_word: originalWordToQuery,
