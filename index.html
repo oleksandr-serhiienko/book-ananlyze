@@ -120,6 +120,49 @@
                     </div>
                 </div>
 
+                <!-- Rollback Models Configuration -->
+                <div class="input-group" id="rollbackModelsGroup">
+                    <div class="rollback-models-section">
+                        <!-- Toggle Button -->
+                        <button type="button" class="rollback-toggle-btn" onclick="toggleRollbackModels()">
+                            <span class="toggle-icon">▶</span>
+                            <span class="toggle-text">Rollback Models (Optional)</span>
+                        </button>
+                        
+                        <!-- Collapsible Rollback Models Section -->
+                        <div id="rollbackModelsContainer" class="rollback-container" style="display: none;">
+                            <div class="rollback-info">
+                                <p>Configure up to 3 fallback models that will be used if the primary model fails after 5 attempts.</p>
+                            </div>
+                            
+                            <div class="rollback-models-list">
+                                <div class="rollback-model-item">
+                                    <label for="rollbackModel1">Rollback Model 1:</label>
+                                    <input type="text" id="rollbackModel1" name="rollbackModel1" placeholder="e.g., gemini-1.5-flash">
+                                    <button type="button" class="remove-model-btn" onclick="clearRollbackModel(1)">×</button>
+                                </div>
+                                
+                                <div class="rollback-model-item">
+                                    <label for="rollbackModel2">Rollback Model 2:</label>
+                                    <input type="text" id="rollbackModel2" name="rollbackModel2" placeholder="e.g., gemini-1.0-pro">
+                                    <button type="button" class="remove-model-btn" onclick="clearRollbackModel(2)">×</button>
+                                </div>
+                                
+                                <div class="rollback-model-item">
+                                    <label for="rollbackModel3">Rollback Model 3:</label>
+                                    <input type="text" id="rollbackModel3" name="rollbackModel3" placeholder="e.g., text-bison">
+                                    <button type="button" class="remove-model-btn" onclick="clearRollbackModel(3)">×</button>
+                                </div>
+                            </div>
+                            
+                            <div class="rollback-actions">
+                                <button type="button" class="clear-all-btn" onclick="clearAllRollbackModels()">Clear All</button>
+                                <button type="button" class="load-saved-btn" onclick="loadSavedRollbackModels()">Load Saved</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Translation Configuration -->
                 <div class="input-group" id="translationConfigGroup">
                     <h3 style="color: #4a5568; margin-bottom: 15px;">Translation Configuration</h3>

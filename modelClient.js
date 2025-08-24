@@ -10,6 +10,7 @@ class ModelClient {
             location: config.LOCATION
         });
         this.model = config.MODEL_ENDPOINT;
+        this.rollbackModels = config.ROLLBACK_MODELS || [];
         this.generationConfig = config.GENERATION_CONFIG;
         this.sourceLanguage = config.DEFAULT_SOURCE_LANGUAGE || 'German';
         this.targetLanguage = config.DEFAULT_TARGET_LANGUAGE || 'English';
@@ -20,7 +21,7 @@ class ModelClient {
         this.targetLanguage = targetLanguage;
     }
 
-    async getSingleTranslation(lineData) {
+    async getSingleTranslation(lineData, useRollbackModel = false, rollbackIndex = 0) {
         const prompt = `Translate the following ${this.sourceLanguage} text to ${this.targetLanguage}. Return one JSON object in this exact format: {"original": "${this.sourceLanguage} text", "translated": "${this.targetLanguage} text"}
 
 ${this.sourceLanguage} text to translate:
@@ -28,9 +29,15 @@ ${lineData.original_text}
 
 Return one JSON object:`;
         
+        // Determine which model to use
+        let modelToUse = this.model;
+        if (useRollbackModel && this.rollbackModels && rollbackIndex < this.rollbackModels.length) {
+            modelToUse = this.rollbackModels[rollbackIndex];
+        }
+        
         try {
             const chat = this.ai.chats.create({
-                model: this.model,
+                model: modelToUse,
                 config: this.generationConfig
             });
 

@@ -1,0 +1,283 @@
+<!-- Add this section to your existing AI Configuration form -->
+<div class="rollback-models-section">
+    <!-- Toggle Button -->
+    <button type="button" class="rollback-toggle-btn" onclick="toggleRollbackModels()">
+        <span class="toggle-icon">▶</span>
+        <span class="toggle-text">Rollback Models (Optional)</span>
+    </button>
+    
+    <!-- Collapsible Rollback Models Section -->
+    <div id="rollbackModelsContainer" class="rollback-container" style="display: none;">
+        <div class="rollback-info">
+            <p>Configure up to 3 fallback models that will be used if the primary model fails after 5 attempts.</p>
+        </div>
+        
+        <div class="rollback-models-list">
+            <div class="rollback-model-item">
+                <label for="rollbackModel1">Rollback Model 1:</label>
+                <input type="text" id="rollbackModel1" name="rollbackModel1" placeholder="e.g., gemini-1.5-flash">
+                <button type="button" class="remove-model-btn" onclick="clearRollbackModel(1)">×</button>
+            </div>
+            
+            <div class="rollback-model-item">
+                <label for="rollbackModel2">Rollback Model 2:</label>
+                <input type="text" id="rollbackModel2" name="rollbackModel2" placeholder="e.g., gemini-1.0-pro">
+                <button type="button" class="remove-model-btn" onclick="clearRollbackModel(2)">×</button>
+            </div>
+            
+            <div class="rollback-model-item">
+                <label for="rollbackModel3">Rollback Model 3:</label>
+                <input type="text" id="rollbackModel3" name="rollbackModel3" placeholder="e.g., text-bison">
+                <button type="button" class="remove-model-btn" onclick="clearRollbackModel(3)">×</button>
+            </div>
+        </div>
+        
+        <div class="rollback-actions">
+            <button type="button" class="clear-all-btn" onclick="clearAllRollbackModels()">Clear All</button>
+            <button type="button" class="load-saved-btn" onclick="loadSavedRollbackModels()">Load Saved</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.rollback-models-section {
+    margin: 15px 0;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+}
+
+.rollback-toggle-btn {
+    width: 100%;
+    padding: 12px 15px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    display: flex;
+    align-items: center;
+    transition: background-color 0.2s;
+}
+
+.rollback-toggle-btn:hover {
+    background-color: #f0f0f0;
+}
+
+.toggle-icon {
+    margin-right: 8px;
+    transition: transform 0.2s;
+    font-size: 12px;
+}
+
+.toggle-icon.expanded {
+    transform: rotate(90deg);
+}
+
+.rollback-container {
+    padding: 15px;
+    border-top: 1px solid #ddd;
+    background-color: white;
+}
+
+.rollback-info {
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #e8f4f8;
+    border-left: 4px solid #17a2b8;
+    border-radius: 3px;
+}
+
+.rollback-info p {
+    margin: 0;
+    font-size: 13px;
+    color: #555;
+}
+
+.rollback-models-list {
+    margin-bottom: 15px;
+}
+
+.rollback-model-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    gap: 10px;
+}
+
+.rollback-model-item label {
+    min-width: 120px;
+    font-weight: 500;
+    color: #555;
+}
+
+.rollback-model-item input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.rollback-model-item input:focus {
+    outline: none;
+    border-color: #17a2b8;
+    box-shadow: 0 0 0 2px rgba(23, 162, 184, 0.2);
+}
+
+.remove-model-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background-color: #dc3545;
+    color: white;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.remove-model-btn:hover {
+    background-color: #c82333;
+}
+
+.rollback-actions {
+    display: flex;
+    gap: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+}
+
+.clear-all-btn, .load-saved-btn {
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f8f9fa;
+    color: #495057;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.clear-all-btn:hover, .load-saved-btn:hover {
+    background-color: #e9ecef;
+}
+
+.load-saved-btn {
+    background-color: #e8f4f8;
+    border-color: #17a2b8;
+    color: #17a2b8;
+}
+
+.load-saved-btn:hover {
+    background-color: #d1ecf1;
+}
+</style>
+
+<script>
+// JavaScript functions for rollback models functionality
+
+function toggleRollbackModels() {
+    const container = document.getElementById('rollbackModelsContainer');
+    const icon = document.querySelector('.toggle-icon');
+    
+    if (container.style.display === 'none') {
+        container.style.display = 'block';
+        icon.classList.add('expanded');
+        icon.textContent = '▼';
+    } else {
+        container.style.display = 'none';
+        icon.classList.remove('expanded');
+        icon.textContent = '▶';
+    }
+}
+
+function clearRollbackModel(modelNumber) {
+    document.getElementById(`rollbackModel${modelNumber}`).value = '';
+}
+
+function clearAllRollbackModels() {
+    for (let i = 1; i <= 3; i++) {
+        clearRollbackModel(i);
+    }
+}
+
+async function loadSavedRollbackModels() {
+    try {
+        // Determine which tab we're on (you'll need to adapt this to your UI)
+        const currentTab = getCurrentTab(); // You'll need to implement this
+        
+        const response = await fetch(`/api/last-settings/${currentTab}`);
+        const settings = await response.json();
+        
+        if (settings.rollbackModels && Array.isArray(settings.rollbackModels)) {
+            // Clear existing values
+            clearAllRollbackModels();
+            
+            // Load saved values
+            settings.rollbackModels.forEach((model, index) => {
+                if (index < 3 && model) {
+                    document.getElementById(`rollbackModel${index + 1}`).value = model;
+                }
+            });
+            
+            // Show success message
+            showMessage('Rollback models loaded successfully!', 'success');
+        } else {
+            showMessage('No saved rollback models found.', 'info');
+        }
+    } catch (error) {
+        console.error('Error loading rollback models:', error);
+        showMessage('Failed to load rollback models.', 'error');
+    }
+}
+
+function getCurrentTab() {
+    // Implement this based on your UI structure
+    // Return 'sentenceProcessing', 'wordProcessing', or 'epubProcessing'
+    
+    // Example implementation - adapt to your UI:
+    const activeTab = document.querySelector('.tab-button.active');
+    if (activeTab) {
+        const tabText = activeTab.textContent.toLowerCase();
+        if (tabText.includes('sentence')) return 'sentenceProcessing';
+        if (tabText.includes('word')) return 'wordProcessing';
+        if (tabText.includes('epub')) return 'epubProcessing';
+    }
+    
+    // Default fallback
+    return 'sentenceProcessing';
+}
+
+function getRollbackModelsFromForm() {
+    const rollbackModels = [];
+    
+    for (let i = 1; i <= 3; i++) {
+        const value = document.getElementById(`rollbackModel${i}`).value.trim();
+        if (value) {
+            rollbackModels.push(value);
+        }
+    }
+    
+    return rollbackModels;
+}
+
+function showMessage(message, type) {
+    // Implement this based on your existing notification system
+    // For now, just use alert as fallback
+    alert(message);
+}
+
+// Function to include rollback models in your existing form submission
+function includeRollbackModelsInConfig(aiConfig) {
+    const rollbackModels = getRollbackModelsFromForm();
+    if (rollbackModels.length > 0) {
+        aiConfig.rollbackModels = rollbackModels;
+    }
+    return aiConfig;
+}
+</script>

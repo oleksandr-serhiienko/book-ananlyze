@@ -375,3 +375,141 @@ button:disabled {
         grid-template-columns: repeat(2, 1fr);
     }
 }
+
+/* Rollback Models Styles */
+.rollback-models-section {
+    margin: 15px 0;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+}
+
+.rollback-toggle-btn {
+    width: 100%;
+    padding: 12px 15px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    display: flex;
+    align-items: center;
+    transition: background-color 0.2s;
+}
+
+.rollback-toggle-btn:hover {
+    background-color: #f0f0f0;
+}
+
+.toggle-icon {
+    margin-right: 8px;
+    transition: transform 0.2s;
+    font-size: 12px;
+}
+
+.toggle-icon.expanded {
+    transform: rotate(90deg);
+}
+
+.rollback-container {
+    padding: 15px;
+    border-top: 1px solid #ddd;
+    background-color: white;
+}
+
+.rollback-info {
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #e8f4f8;
+    border-left: 4px solid #17a2b8;
+    border-radius: 3px;
+}
+
+.rollback-info p {
+    margin: 0;
+    font-size: 13px;
+    color: #555;
+}
+
+.rollback-models-list {
+    margin-bottom: 15px;
+}
+
+.rollback-model-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    gap: 10px;
+}
+
+.rollback-model-item label {
+    min-width: 120px;
+    font-weight: 500;
+    color: #555;
+}
+
+.rollback-model-item input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.rollback-model-item input:focus {
+    outline: none;
+    border-color: #17a2b8;
+    box-shadow: 0 0 0 2px rgba(23, 162, 184, 0.2);
+}
+
+.remove-model-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background-color: #dc3545;
+    color: white;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.remove-model-btn:hover {
+    background-color: #c82333;
+}
+
+.rollback-actions {
+    display: flex;
+    gap: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+}
+
+.clear-all-btn, .load-saved-btn {
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f8f9fa;
+    color: #495057;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.clear-all-btn:hover, .load-saved-btn:hover {
+    background-color: #e9ecef;
+}
+
+.load-saved-btn {
+    background-color: #e8f4f8;
+    border-color: #17a2b8;
+    color: #17a2b8;
+}
+
+.load-saved-btn:hover {
+    background-color: #d1ecf1;
+}

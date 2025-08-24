@@ -30,8 +30,11 @@ class BookProcessorUI {
         this.loadSupportedLanguages();
         this.updateUI();
         
-        // Initialize quick button selection
-        setTimeout(() => this.updateQuickButtonSelection(), 100);
+        // Initialize quick button selection and load saved settings
+        setTimeout(() => {
+            this.updateQuickButtonSelection();
+            this.loadSavedSettings();
+        }, 100);
     }
 
     initializeElements() {
@@ -213,7 +216,82 @@ class BookProcessorUI {
             this.isWordProcessing = false;
         }
         
+        // Load saved settings for the new mode
+        this.loadSavedSettings();
+        
         this.updateUI();
+    }
+
+    async loadSavedSettings() {
+        try {
+            const currentTab = getCurrentTab();
+            const response = await fetch(`http://localhost:3005/api/last-settings/${currentTab}`);
+            
+            if (!response.ok) {
+                console.log('No saved settings found or server error');
+                return;
+            }
+            
+            const settings = await response.json();
+            
+            // Load AI configuration settings
+            if (settings.projectId) {
+                document.getElementById('projectId').value = settings.projectId;
+            }
+            if (settings.location) {
+                document.getElementById('location').value = settings.location;
+            }
+            if (settings.modelEndpoint) {
+                document.getElementById('modelEndpoint').value = settings.modelEndpoint;
+            }
+            
+            // Load translation settings
+            if (settings.sourceLanguage) {
+                this.elements.sourceLanguage.value = settings.sourceLanguage;
+            }
+            if (settings.targetLanguage) {
+                this.elements.targetLanguage.value = settings.targetLanguage;
+            }
+            
+            // Load file paths based on current mode
+            if (this.currentMode === 'word') {
+                if (settings.textFilePath) {
+                    this.elements.textFile.value = settings.textFilePath;
+                }
+                if (settings.databasePath) {
+                    this.elements.databasePath.value = settings.databasePath;
+                    this.updateQuickButtonSelection();
+                }
+            } else if (this.currentMode === 'sentence') {
+                if (settings.textFilePath) {
+                    this.elements.textFile.value = settings.textFilePath;
+                }
+            } else if (this.currentMode === 'epub') {
+                if (settings.epubFilePath) {
+                    this.elements.epubFile.value = settings.epubFilePath;
+                }
+            }
+            
+            // Load rollback models
+            if (settings.rollbackModels && Array.isArray(settings.rollbackModels)) {
+                // Clear existing rollback models
+                for (let i = 1; i <= 3; i++) {
+                    document.getElementById(`rollbackModel${i}`).value = '';
+                }
+                
+                // Load saved rollback models
+                settings.rollbackModels.forEach((model, index) => {
+                    if (index < 3 && model) {
+                        document.getElementById(`rollbackModel${index + 1}`).value = model;
+                    }
+                });
+            }
+            
+            console.log(`Settings loaded for ${currentTab}`);
+            
+        } catch (error) {
+            console.error('Error loading saved settings:', error);
+        }
     }
 
     browseTextFile() {
@@ -423,6 +501,9 @@ class BookProcessorUI {
             location: document.getElementById('location').value.trim(),
             modelEndpoint: document.getElementById('modelEndpoint').value.trim()
         };
+
+        // Include rollback models in config
+        includeRollbackModelsInConfig(aiConfig);
 
         // Get translation configuration
         const translationConfig = {
@@ -638,6 +719,9 @@ class BookProcessorUI {
             location: document.getElementById('location').value.trim(),
             modelEndpoint: document.getElementById('modelEndpoint').value.trim()
         };
+
+        // Include rollback models in config
+        includeRollbackModelsInConfig(aiConfig);
 
         // Get translation configuration from form (same as sentence processing)
         const translationConfig = {
@@ -931,5 +1015,133 @@ class BookProcessorUI {
 
 // Initialize the application when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-    new BookProcessorUI();
+    const ui = new BookProcessorUI();
+    // Store reference for global functions
+    document.querySelector('body').__bookProcessorUI = ui;
 });
+
+// Rollback Models Functionality
+function toggleRollbackModels() {
+    const container = document.getElementById('rollbackModelsContainer');
+    const icon = document.querySelector('.toggle-icon');
+    
+    if (container.style.display === 'none') {
+        container.style.display = 'block';
+        icon.classList.add('expanded');
+        icon.textContent = '▼';
+    } else {
+        container.style.display = 'none';
+        icon.classList.remove('expanded');
+        icon.textContent = '▶';
+    }
+}
+
+function clearRollbackModel(modelNumber) {
+    document.getElementById(`rollbackModel${modelNumber}`).value = '';
+}
+
+function clearAllRollbackModels() {
+    for (let i = 1; i <= 3; i++) {
+        clearRollbackModel(i);
+    }
+}
+
+async function loadSavedRollbackModels() {
+    try {
+        // Use the main UI class method to load all settings
+        const ui = document.querySelector('body').__bookProcessorUI;
+        if (ui) {
+            await ui.loadSavedSettings();
+            showMessage('Settings loaded successfully!', 'success');
+        } else {
+            // Fallback to direct loading if UI instance not available
+            const currentTab = getCurrentTab();
+            const response = await fetch(`http://localhost:3005/api/last-settings/${currentTab}`);
+            const settings = await response.json();
+            
+            if (settings.rollbackModels && Array.isArray(settings.rollbackModels)) {
+                clearAllRollbackModels();
+                settings.rollbackModels.forEach((model, index) => {
+                    if (index < 3 && model) {
+                        document.getElementById(`rollbackModel${index + 1}`).value = model;
+                    }
+                });
+                showMessage('Rollback models loaded successfully!', 'success');
+            } else {
+                showMessage('No saved rollback models found.', 'info');
+            }
+        }
+    } catch (error) {
+        console.error('Error loading rollback models:', error);
+        showMessage('Failed to load rollback models.', 'error');
+    }
+}
+
+function getCurrentTab() {
+    // Check which tab is active
+    const activeTab = document.querySelector('.tab-button.active');
+    if (activeTab) {
+        const tabId = activeTab.id;
+        if (tabId === 'sentenceTab') return 'sentenceProcessing';
+        if (tabId === 'wordTab') return 'wordProcessing';
+        if (tabId === 'epubTab') return 'epubProcessing';
+    }
+    
+    // Default fallback
+    return 'sentenceProcessing';
+}
+
+function getRollbackModelsFromForm() {
+    const rollbackModels = [];
+    
+    for (let i = 1; i <= 3; i++) {
+        const value = document.getElementById(`rollbackModel${i}`).value.trim();
+        if (value) {
+            rollbackModels.push(value);
+        }
+    }
+    
+    return rollbackModels;
+}
+
+function showMessage(message, type) {
+    // Create a simple notification
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        border-radius: 4px;
+        color: white;
+        font-weight: 500;
+        z-index: 1000;
+        max-width: 300px;
+        word-wrap: break-word;
+    `;
+    
+    // Set background color based on type
+    if (type === 'success') notification.style.backgroundColor = '#48bb78';
+    else if (type === 'error') notification.style.backgroundColor = '#f56565';
+    else notification.style.backgroundColor = '#4299e1';
+    
+    document.body.appendChild(notification);
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.parentNode.removeChild(notification);
+        }
+    }, 3000);
+}
+
+// Function to include rollback models in existing AI config
+function includeRollbackModelsInConfig(aiConfig) {
+    const rollbackModels = getRollbackModelsFromForm();
+    if (rollbackModels.length > 0) {
+        aiConfig.rollbackModels = rollbackModels;
+    }
+    return aiConfig;
+}

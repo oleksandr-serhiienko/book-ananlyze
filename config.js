@@ -4,7 +4,7 @@ export default {
     RETRY_DELAY_SECONDS_SENTENCE: 10000, // milliseconds
     
     // Concurrent Processing Configuration
-    CONCURRENT_WORKERS: 10, // Number of parallel requests
+    CONCURRENT_WORKERS: 5, // Number of parallel requests
     RATE_LIMIT_DELAY: 100, // Milliseconds between starting new requests
     MAX_QUEUE_SIZE: 50, // Maximum sentences in processing queue
 

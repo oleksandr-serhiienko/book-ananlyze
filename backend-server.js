@@ -8,6 +8,60 @@ import { fileURLToPath } from 'url';
 // Import config as ES module
 import config from './config.js';
 
+// User settings management
+const USER_SETTINGS_FILE = './userSettings.json';
+
+function loadUserSettings() {
+    try {
+        if (fs.existsSync(USER_SETTINGS_FILE)) {
+            const settingsData = fs.readFileSync(USER_SETTINGS_FILE, 'utf8');
+            return JSON.parse(settingsData);
+        }
+    } catch (error) {
+        console.log('Error loading user settings:', error.message);
+    }
+    // Return default structure if file doesn't exist or has errors
+    return {
+        sentenceProcessing: {
+            projectId: "",
+            location: "",
+            modelEndpoint: "",
+            rollbackModels: [],
+            sourceLanguage: "",
+            targetLanguage: "",
+            textFilePath: "",
+            databasePath: ""
+        },
+        wordProcessing: {
+            projectId: "",
+            location: "",
+            modelEndpoint: "",
+            rollbackModels: [],
+            sourceLanguage: "",
+            targetLanguage: "",
+            textFilePath: "",
+            databasePath: ""
+        },
+        epubProcessing: {
+            projectId: "",
+            location: "",
+            modelEndpoint: "",
+            rollbackModels: [],
+            sourceLanguage: "",
+            targetLanguage: "",
+            epubFilePath: ""
+        }
+    };
+}
+
+function saveUserSettings(settings) {
+    try {
+        fs.writeFileSync(USER_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
+    } catch (error) {
+        console.log('Error saving user settings:', error.message);
+    }
+}
+
 // Dynamic imports for modules that need to be loaded
 let TextProcessor, ModelClient, SQLGenerator, WordProcessor, EPUBReader;
 
@@ -233,6 +287,11 @@ app.post('/api/process/start', async (req, res) => {
         processingState.isRunning = true;
         processingState.status = 'processing';
 
+        // Save file path for future use
+        const userSettings = loadUserSettings();
+        userSettings.sentenceProcessing.textFilePath = filePath;
+        saveUserSettings(userSettings);
+
         addLog(`Starting sentence processing: ${filePath}`);
         
         // Update AI configuration if provided
@@ -240,12 +299,23 @@ app.post('/api/process/start', async (req, res) => {
             addLog(`Using custom AI config - Project: ${aiConfig.projectId}, Location: ${aiConfig.location}`);
             addLog(`Model endpoint: ${aiConfig.modelEndpoint}`);
             
+            // Save the settings for future use
+            const userSettings = loadUserSettings();
+            userSettings.sentenceProcessing.projectId = aiConfig.projectId || config.PROJECT_ID;
+            userSettings.sentenceProcessing.location = aiConfig.location || config.LOCATION;
+            userSettings.sentenceProcessing.modelEndpoint = aiConfig.modelEndpoint || config.MODEL_ENDPOINT;
+            if (aiConfig.rollbackModels && Array.isArray(aiConfig.rollbackModels)) {
+                userSettings.sentenceProcessing.rollbackModels = aiConfig.rollbackModels.slice(0, 3); // Max 3 rollback models
+            }
+            saveUserSettings(userSettings);
+            
             // Create new ModelClient with custom config
             const customConfig = {
                 ...config,
                 PROJECT_ID: aiConfig.projectId || config.PROJECT_ID,
                 LOCATION: aiConfig.location || config.LOCATION,
-                MODEL_ENDPOINT: aiConfig.modelEndpoint || config.MODEL_ENDPOINT
+                MODEL_ENDPOINT: aiConfig.modelEndpoint || config.MODEL_ENDPOINT,
+                ROLLBACK_MODELS: aiConfig.rollbackModels ? aiConfig.rollbackModels.slice(0, 3) : []
             };
             
             try {
@@ -265,6 +335,12 @@ app.post('/api/process/start', async (req, res) => {
             
             addLog(`Using translation config - From: ${sourceLanguage} To: ${targetLanguage}`);
             modelClient.setLanguagePair(sourceLanguage, targetLanguage);
+            
+            // Save language settings
+            const userSettings = loadUserSettings();
+            userSettings.sentenceProcessing.sourceLanguage = sourceLanguage;
+            userSettings.sentenceProcessing.targetLanguage = targetLanguage;
+            saveUserSettings(userSettings);
         } else {
             addLog(`Using default translation: ${config.DEFAULT_SOURCE_LANGUAGE} to ${config.DEFAULT_TARGET_LANGUAGE}`);
         }
@@ -1024,6 +1100,13 @@ function runCommand(command, args, onData) {
 
 async function processWords(filePath, databasePath, aiConfig, translationConfig) {
     const functionName = 'processWords';
+    
+    // Save file paths for future use
+    const userSettings = loadUserSettings();
+    userSettings.wordProcessing.textFilePath = filePath;
+    userSettings.wordProcessing.databasePath = databasePath || "";
+    saveUserSettings(userSettings);
+    
     addWordLog(`Starting ${functionName} for file: ${filePath}`);
     if (databasePath) {
         addWordLog(`Database path: ${databasePath}`);
@@ -1041,8 +1124,19 @@ async function processWords(filePath, databasePath, aiConfig, translationConfig)
                 ...config,
                 PROJECT_ID: aiConfig.projectId || config.PROJECT_ID,
                 LOCATION: aiConfig.location || config.LOCATION,
-                MODEL_ENDPOINT: aiConfig.modelEndpoint || config.MODEL_ENDPOINT
+                MODEL_ENDPOINT: aiConfig.modelEndpoint || config.MODEL_ENDPOINT,
+                ROLLBACK_MODELS: aiConfig.rollbackModels ? aiConfig.rollbackModels.slice(0, 3) : []
             };
+            
+            // Save the settings for future use
+            const userSettings = loadUserSettings();
+            userSettings.wordProcessing.projectId = aiConfig.projectId || config.PROJECT_ID;
+            userSettings.wordProcessing.location = aiConfig.location || config.LOCATION;
+            userSettings.wordProcessing.modelEndpoint = aiConfig.modelEndpoint || config.MODEL_ENDPOINT;
+            if (aiConfig.rollbackModels && Array.isArray(aiConfig.rollbackModels)) {
+                userSettings.wordProcessing.rollbackModels = aiConfig.rollbackModels.slice(0, 3); // Max 3 rollback models
+            }
+            saveUserSettings(userSettings);
             
             addWordLog(`WordProcessor will use: Project ${customConfig.PROJECT_ID}, Model ${customConfig.MODEL_ENDPOINT}`);
         }
@@ -1061,6 +1155,12 @@ async function processWords(filePath, databasePath, aiConfig, translationConfig)
             
             addWordLog(`Using translation config - From: ${sourceLanguage} To: ${targetLanguage}`);
             wordProcessingState.currentWordProcessor.modelClient.setLanguagePair(sourceLanguage, targetLanguage);
+            
+            // Save language settings
+            const userSettings = loadUserSettings();
+            userSettings.wordProcessing.sourceLanguage = sourceLanguage;
+            userSettings.wordProcessing.targetLanguage = targetLanguage;
+            saveUserSettings(userSettings);
         } else {
             addWordLog(`Using default translation: ${config.DEFAULT_SOURCE_LANGUAGE} to ${config.DEFAULT_TARGET_LANGUAGE}`);
         }
@@ -1276,6 +1376,12 @@ app.get('/api/epub/download/text', (req, res) => {
 
 async function processEPUB(filePath) {
     const functionName = 'processEPUB';
+    
+    // Save file path for future use
+    const userSettings = loadUserSettings();
+    userSettings.epubProcessing.epubFilePath = filePath;
+    saveUserSettings(userSettings);
+    
     addEpubLog(`Converting EPUB: ${path.basename(filePath)}`);
     
     try {
@@ -1315,6 +1421,35 @@ async function processEPUB(filePath) {
     }
 }
 
+// Get last used settings by tab
+app.get('/api/last-settings/:tab', (req, res) => {
+    try {
+        const { tab } = req.params;
+        const validTabs = ['sentenceProcessing', 'wordProcessing', 'epubProcessing'];
+        
+        if (!validTabs.includes(tab)) {
+            return res.status(400).json({ error: 'Invalid tab. Must be one of: sentenceProcessing, wordProcessing, epubProcessing' });
+        }
+        
+        const userSettings = loadUserSettings();
+        res.json(userSettings[tab]);
+    } catch (error) {
+        console.error('Error getting last settings:', error);
+        res.status(500).json({ error: 'Failed to load last settings' });
+    }
+});
+
+// Get all settings
+app.get('/api/last-settings', (req, res) => {
+    try {
+        const userSettings = loadUserSettings();
+        res.json(userSettings);
+    } catch (error) {
+        console.error('Error getting last settings:', error);
+        res.status(500).json({ error: 'Failed to load last settings' });
+    }
+});
+
 // Start server
 app.listen(PORT, () => {
     console.log(`Backend server running at http://localhost:${PORT}`);
@@ -1332,4 +1467,6 @@ app.listen(PORT, () => {
     console.log('  POST /api/epub/extract - Extract text from EPUB file');
     console.log('  GET  /api/epub/status - Get EPUB processing status');
     console.log('  GET  /api/epub/download/text - Download extracted text');
+    console.log('  GET  /api/last-settings - Get all last used settings');
+    console.log('  GET  /api/last-settings/:tab - Get settings for specific tab (sentenceProcessing, wordProcessing, epubProcessing)');
 });

@@ -1,0 +1,35 @@
+{
+  "sentenceProcessing": {
+    "projectId": "",
+    "location": "",
+    "modelEndpoint": "",
+    "rollbackModels": [],
+    "sourceLanguage": "",
+    "targetLanguage": "",
+    "textFilePath": "",
+    "databasePath": ""
+  },
+  "wordProcessing": {
+    "projectId": "773128740280",
+    "location": "europe-southwest1",
+    "modelEndpoint": "projects/773128740280/locations/europe-southwest1/endpoints/7132439570406178816",
+    "rollbackModels": [
+      "projects/773128740280/locations/europe-southwest1/endpoints/1034002724993105920",
+      "projects/773128740280/locations/europe-southwest1/endpoints/4488263639186276352",
+      "projects/773128740280/locations/europe-southwest1/endpoints/4694303322138476544"
+    ],
+    "sourceLanguage": "German",
+    "targetLanguage": "Russian",
+    "textFilePath": "C:\\Dev\\Application\\book-ananlyze\\logs\\txt\\extracted_epub_2025-08-16T10-53-27-781Z.txt",
+    "databasePath": ""
+  },
+  "epubProcessing": {
+    "projectId": "",
+    "location": "",
+    "modelEndpoint": "",
+    "rollbackModels": [],
+    "sourceLanguage": "",
+    "targetLanguage": "",
+    "epubFilePath": ""
+  }
+}

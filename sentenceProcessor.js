@@ -37,6 +37,7 @@ class SentenceProcessor {
     }
 
     async processSingleLine(lineData) {
+        // First try main model with 5 attempts
         for (let attempt = 1; attempt <= config.MAX_RETRIES_SENTENCE; attempt++) {
             console.log(`  Processing C${lineData.chapter_id}_S${lineData.line_number} (attempt ${attempt}/${config.MAX_RETRIES_SENTENCE})`);
             
@@ -49,9 +50,7 @@ class SentenceProcessor {
                         await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
                         continue;
                     } else {
-                        this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse, null, this.errorLogFile);
-                        this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "No content from model after max retries.", rawModelResponse);
-                        return false;
+                        break; // Break out of main retry loop to try rollback models
                     }
                 }
 
@@ -69,9 +68,7 @@ class SentenceProcessor {
                         await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
                         continue;
                     } else {
-                        this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "Failed to parse line response after max retries", rawModelResponse, parseErrors, this.errorLogFile);
-                        this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, parseErrors.join('; '), rawModelResponse);
-                        return false;
+                        break; // Break out of main retry loop to try rollback models
                     }
                 }
                 
@@ -80,13 +77,69 @@ class SentenceProcessor {
                 if (attempt < config.MAX_RETRIES_SENTENCE) {
                     await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
                 } else {
-                    this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "", [], this.errorLogFile);
-                    this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, `Unexpected error after max retries: ${error.message}`, "");
-                    return false;
+                    break; // Break out of main retry loop to try rollback models
                 }
             }
         }
         
+        // If main model failed after 5 attempts, try rollback models
+        if (this.modelClient.rollbackModels && this.modelClient.rollbackModels.length > 0) {
+            console.log(`  🔄 ROLLBACK: Main model failed for C${lineData.chapter_id}_S${lineData.line_number}, trying rollback models...`);
+            
+            for (let rollbackIndex = 0; rollbackIndex < this.modelClient.rollbackModels.length; rollbackIndex++) {
+                console.log(`  🔄 ROLLBACK: Using model ${rollbackIndex + 1}/${this.modelClient.rollbackModels.length} (${this.modelClient.rollbackModels[rollbackIndex]}) for C${lineData.chapter_id}_S${lineData.line_number}`);
+                
+                // Try each rollback model up to 3 times
+                for (let rollbackAttempt = 1; rollbackAttempt <= 3; rollbackAttempt++) {
+                    console.log(`    Rollback model ${rollbackIndex + 1} attempt ${rollbackAttempt}/3`);
+                    
+                    try {
+                        const rawModelResponse = await this.modelClient.getSingleTranslation(lineData, true, rollbackIndex);
+                        
+                        if (!rawModelResponse || !rawModelResponse.trim()) {
+                            console.log(`      No content from rollback model ${rollbackIndex + 1} on attempt ${rollbackAttempt}.`);
+                            if (rollbackAttempt < 3) {
+                                await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
+                                continue; // Try same rollback model again
+                            } else {
+                                break; // Move to next rollback model
+                            }
+                        }
+
+                        this.modelClient.logSuccessfulResponse([lineData], rawModelResponse, this.successLogFile);
+
+                        const [germanAnnotated, englishAnnotated, parseErrors] = this.textProcessor.parseTranslationResponse(rawModelResponse);
+                        
+                        if (germanAnnotated !== null && englishAnnotated !== null) {
+                            this.sqlGenerator.addSuccessfulLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, germanAnnotated, englishAnnotated, parseErrors);
+                            console.log(`    ✅ ROLLBACK SUCCESS: C${lineData.chapter_id}_S${lineData.line_number} processed with rollback model ${rollbackIndex + 1} (${this.modelClient.rollbackModels[rollbackIndex]}) on attempt ${rollbackAttempt}.`);
+                            return true;
+                        } else {
+                            console.log(`      Parse failed with rollback model ${rollbackIndex + 1} on attempt ${rollbackAttempt}: ${parseErrors?.join('; ') || 'Unknown parse error'}`);
+                            if (rollbackAttempt < 3) {
+                                await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
+                                continue; // Try same rollback model again
+                            } else {
+                                break; // Move to next rollback model
+                            }
+                        }
+                        
+                    } catch (error) {
+                        console.log(`      Error with rollback model ${rollbackIndex + 1} on attempt ${rollbackAttempt}: ${error.message}`);
+                        if (rollbackAttempt < 3) {
+                            await this.modelClient.delay(config.RETRY_DELAY_SECONDS_SENTENCE);
+                            continue; // Try same rollback model again
+                        } else {
+                            break; // Move to next rollback model
+                        }
+                    }
+                }
+            }
+        }
+        
+        // All models failed
+        this.modelClient.logError(lineData.chapter_id, lineData.line_number, lineData.original_text, "All models (main + rollback) failed after max retries", "", [], this.errorLogFile);
+        this.sqlGenerator.addFailedLineSQL(lineData.chapter_id, lineData.line_number, lineData.original_text, "All models (main + rollback) failed after max retries", "");
         return false;
     }
 

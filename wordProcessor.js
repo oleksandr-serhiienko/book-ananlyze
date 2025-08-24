@@ -20,6 +20,8 @@ class WordProcessor {
         this.logProgress(`  Model Endpoint: ${finalConfig.MODEL_ENDPOINT}`);
         this.logProgress(`  Source Language: ${finalConfig.DEFAULT_SOURCE_LANGUAGE}`);
         this.logProgress(`  Target Language: ${finalConfig.DEFAULT_TARGET_LANGUAGE}`);
+        this.logProgress(`  Rollback Models: ${JSON.stringify(finalConfig.ROLLBACK_MODELS || [])}`);
+        this.logProgress(`  ModelClient rollback models: ${JSON.stringify(this.modelClient.rollbackModels || [])}`);
         this.isProcessing = false;
         this.sqlInsertStatements = [];
         
@@ -153,7 +155,7 @@ class WordProcessor {
                     
                     this.logProgress(`Successfully connected to database: ${dbPath}`);
                     
-                    db.all("SELECT DISTINCT queried_word FROM words", (err, rows) => {
+                    db.all("SELECT DISTINCT word FROM words", (err, rows) => {
                         if (err) {
                             console.log(`Database operational error (e.g., table 'words' not found during check): ${err.message}`);
                             console.log("Proceeding to query all words from text file, as DB check failed.");
@@ -162,7 +164,7 @@ class WordProcessor {
                             return;
                         }
                         
-                        const existingQueriedWords = new Set(rows.map(row => row.queried_word.toLowerCase()));
+                        const existingQueriedWords = new Set(rows.map(row => row.word.toLowerCase()));
                         
                         for (const word of wordsFromText) {
                             if (!existingQueriedWords.has(word.toLowerCase())) {
@@ -170,7 +172,7 @@ class WordProcessor {
                             }
                         }
                         
-                        this.logProgress(`Identified ${newWordsToQuery.length} words from text file that are potentially new to the database (based on 'queried_word' check).`);
+                        this.logProgress(`Identified ${newWordsToQuery.length} words from text file that are potentially new to the database (based on 'word' check).`);
                         
                         db.close((err) => {
                             if (err) {
@@ -253,10 +255,19 @@ class WordProcessor {
                     responseData.translations.forEach(translation => {
                         if (translation.examples && Array.isArray(translation.examples)) {
                             translation.examples.forEach(example => {
+                                // Validate that source and target contain pipe markers |word|
                                 if (example.source) {
+                                    if (!example.source.includes('|')) {
+                                        this.logError(originalQueriedWord, `Source text missing pipe markers: ${example.source}`, responseData);
+                                        throw new Error('Source text missing required pipe markers');
+                                    }
                                     example.source = this.transformExampleText(example.source);
                                 }
                                 if (example.target) {
+                                    if (!example.target.includes('|')) {
+                                        this.logError(originalQueriedWord, `Target text missing pipe markers: ${example.target}`, responseData);
+                                        throw new Error('Target text missing required pipe markers');
+                                    }
                                     example.target = this.transformExampleText(example.target);
                                 }
                             });
@@ -266,7 +277,11 @@ class WordProcessor {
                 
                 processedResponse = JSON.stringify(responseData);
             } catch (jsonError) {
-                this.logError(originalQueriedWord, `Raw response is not valid JSON: ${jsonError.message}`, rawResponse);
+                if (jsonError.message.includes('pipe markers')) {
+                    this.logError(originalQueriedWord, `Response validation failed: ${jsonError.message}`, rawResponse);
+                } else {
+                    this.logError(originalQueriedWord, `Raw response is not valid JSON: ${jsonError.message}`, rawResponse);
+                }
                 return false;
             }
 
@@ -306,9 +321,6 @@ class WordProcessor {
         // Format: "de-en |word|" or "de-rus |word|" based on current language settings
         const textPrompt = `${sourceLanguageCode}-${targetLanguageCode} |${originalWordToQuery}|`;
         
-        // Log the exact prompt being sent to the model
-        this.logProgress(`Sending to model: "${textPrompt}"`);
-        
         try {
             // Call the model directly with the correct prompt format for word processing
             const chat = this.modelClient.ai.chats.create({
@@ -341,30 +353,24 @@ class WordProcessor {
     async processWordWithRetries(originalWordToQuery) {
         let fullRawStreamedOutputForLogging = "";
         
+        // First try main model with 5 attempts
         for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
-            this.logProgress(`Processing '${originalWordToQuery}', Attempt ${attempt}/${this.MAX_RETRIES}...`);
-            this.logProgress(`Language settings: ${this.modelClient.sourceLanguage} → ${this.modelClient.targetLanguage}`);
-            
             try {
                 const fullRawStreamedOutput = await this.getTranslationFromModel(originalWordToQuery);
                 fullRawStreamedOutputForLogging = fullRawStreamedOutput;
 
                 if (!fullRawStreamedOutput || !fullRawStreamedOutput.trim()) {
-                    console.log(`No content received from model for '${originalWordToQuery}' on attempt ${attempt}.`);
                     if (attempt < this.MAX_RETRIES) {
-                        console.log(`Retrying in ${this.RETRY_DELAY_SECONDS / 1000} seconds...`);
                         await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_SECONDS));
                         continue;
                     } else {
-                        this.logError(originalWordToQuery, "No content from model after max retries.", fullRawStreamedOutputForLogging);
-                        return false;
+                        break; // Break out to try rollback models
                     }
                 }
 
                 const assistantContentJson = this.parseModelOutputForAssistantContent(fullRawStreamedOutput);
 
                 if (assistantContentJson) {
-                    this.logProgress(`Successfully parsed model output for '${originalWordToQuery}' on attempt ${attempt}.`);
                     if (this.extractAndGenerateSQLForWord(assistantContentJson, originalWordToQuery, fullRawStreamedOutput)) {
                         try {
                             const logEntry = {
@@ -378,31 +384,102 @@ class WordProcessor {
                         }
                         return true;
                     } else {
-                        this.logProgress(`Failed to generate SQL for '${originalWordToQuery}' (logged).`);
-                        return false;
+                        // Validation failed, continue to retry (don't return false immediately)
+                        if (attempt < this.MAX_RETRIES) {
+                            await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_SECONDS));
+                            continue;
+                        } else {
+                            break; // Break out to try rollback models
+                        }
                     }
                 } else {
-                    console.log(`Failed to parse model output for '${originalWordToQuery}' on attempt ${attempt} (parser returned None).`);
                     if (attempt < this.MAX_RETRIES) {
-                        console.log(`Retrying API call and parsing in ${this.RETRY_DELAY_SECONDS / 1000} seconds...`);
                         await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_SECONDS));
                     } else {
-                        this.logError(originalWordToQuery, "Failed to parse model output after max retries (parser returned None).", fullRawStreamedOutputForLogging);
-                        return false;
+                        break; // Break out to try rollback models
                     }
                 }
             } catch (error) {
-                console.log(`Unexpected error processing '${originalWordToQuery}' on attempt ${attempt}: ${error.message}`);
                 if (attempt < this.MAX_RETRIES) {
-                    console.log(`Retrying in ${this.RETRY_DELAY_SECONDS / 1000} seconds...`);
                     await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_SECONDS));
                 } else {
-                    this.logError(originalWordToQuery, `Unexpected error after max retries: ${error.message}`, fullRawStreamedOutputForLogging || "No raw output captured due to early exception.");
-                    return false;
+                    break; // Break out to try rollback models
                 }
             }
         }
         
+        // If main model failed after 5 attempts, try rollback models
+        this.logProgress(`DEBUG: Checking rollback models for word '${originalWordToQuery}': ${JSON.stringify(this.modelClient.rollbackModels || [])}`);
+        if (this.modelClient.rollbackModels && this.modelClient.rollbackModels.length > 0) {
+            this.logProgress(`🔄 ROLLBACK: Main model failed for word '${originalWordToQuery}', trying rollback models...`);
+            
+            for (let rollbackIndex = 0; rollbackIndex < this.modelClient.rollbackModels.length; rollbackIndex++) {
+                this.logProgress(`🔄 ROLLBACK: Using model ${rollbackIndex + 1}/${this.modelClient.rollbackModels.length} (${this.modelClient.rollbackModels[rollbackIndex]}) for word '${originalWordToQuery}'`);
+                
+                // Try each rollback model up to 3 times
+                for (let rollbackAttempt = 1; rollbackAttempt <= 3; rollbackAttempt++) {
+                    try {
+                        const fullRawStreamedOutput = await this.modelClient.getSingleTranslation({
+                            original_text: originalWordToQuery
+                        }, true, rollbackIndex);
+                        
+                        if (!fullRawStreamedOutput || !fullRawStreamedOutput.trim()) {
+                            if (rollbackAttempt < 3) {
+                                await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_SECONDS));
+                                continue;
+                            } else {
+                                break; // Move to next rollback model
+                            }
+                        }
+
+                        const assistantContentJson = this.parseModelOutputForAssistantContent(fullRawStreamedOutput);
+
+                        if (assistantContentJson) {
+                            if (this.extractAndGenerateSQLForWord(assistantContentJson, originalWordToQuery, fullRawStreamedOutput)) {
+                                try {
+                                    const logEntry = {
+                                        queried_word: originalWordToQuery,
+                                        timestamp: new Date().toISOString(),
+                                        response_data: assistantContentJson,
+                                        rollback_model: this.modelClient.rollbackModels[rollbackIndex]
+                                    };
+                                    fs.appendFileSync(this.successLogFile, JSON.stringify(logEntry) + '\n', 'utf8');
+                                } catch (logError) {
+                                    console.log(`Warning: Could not write to successful JSON log: ${logError.message}`);
+                                }
+                                this.logProgress(`✅ ROLLBACK SUCCESS: Word '${originalWordToQuery}' processed with rollback model ${rollbackIndex + 1} (${this.modelClient.rollbackModels[rollbackIndex]}) on attempt ${rollbackAttempt}.`);
+                                return true;
+                            } else {
+                                // Validation failed, continue to retry with this rollback model
+                                if (rollbackAttempt < 3) {
+                                    await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_SECONDS));
+                                    continue; // Try same rollback model again
+                                } else {
+                                    break; // Move to next rollback model
+                                }
+                            }
+                        } else {
+                            if (rollbackAttempt < 3) {
+                                await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_SECONDS));
+                                continue;
+                            } else {
+                                break; // Move to next rollback model
+                            }
+                        }
+                    } catch (error) {
+                        if (rollbackAttempt < 3) {
+                            await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_SECONDS));
+                            continue;
+                        } else {
+                            break; // Move to next rollback model
+                        }
+                    }
+                }
+            }
+        }
+        
+        // All models failed
+        this.logProgress(`Failed to process word: ${originalWordToQuery} (all models failed after retries)`);
         return false;
     }
 
@@ -437,7 +514,7 @@ class WordProcessor {
         const queue = [...wordsToProcess];
         let activeWorkers = 0;
 
-        this.logProgress(`Starting concurrent processing with ${config.CONCURRENT_WORKERS} workers for ${queue.length} words`);
+        // this.logProgress(`Starting concurrent processing with ${config.CONCURRENT_WORKERS} workers for ${queue.length} words`);
 
         // Create worker function
         const processWorker = async (workerId) => {
@@ -449,16 +526,14 @@ class WordProcessor {
                 if (!word) break;
 
                 try {
-                    this.logProgress(`Worker ${workerId}: Processing '${word}' (${results.processed + 1}/${wordsToProcess.length})`);
+                    // Minimal logging - worker progress removed
                     
                     const success = await this.processWordWithRetries(word);
                     
                     if (success) {
                         results.successfulWords++;
-                        this.logProgress(`Successfully processed and generated SQL for '${word}'.`);
                     } else {
                         results.failedWords++;
-                        this.logProgress(`Failed to process '${word}' after retries.`);
                     }
                     
                     results.processed++;
@@ -501,7 +576,7 @@ class WordProcessor {
         // Wait for all workers to complete
         await Promise.all(workers);
 
-        this.logProgress(`Concurrent processing completed: ${results.successfulWords} successful, ${results.failedWords} failed`);
+        // this.logProgress(`Concurrent processing completed: ${results.successfulWords} successful, ${results.failedWords} failed`);
         return results;
     }
 
@@ -523,7 +598,7 @@ class WordProcessor {
         const wordsToProcessQuery = await this.getNewWordsNotInDB(allWordsFromText, this.DB_NAME);
 
         if (wordsToProcessQuery.length === 0) {
-            this.logProgress("No new words to process. All extracted words might already be in the database (based on 'queried_word' check).");
+            this.logProgress("No new words to process. All extracted words might already be in the database (based on 'word' check).");
             this.saveProgress();
             this.isProcessing = false;
             return { 
