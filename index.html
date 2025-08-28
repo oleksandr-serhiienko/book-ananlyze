@@ -18,6 +18,7 @@
             <section class="mode-selector">
                 <div class="tabs">
                     <button id="sentenceTab" class="tab-button active">Sentence Processing</button>
+                    <button id="sentenceBatchTab" class="tab-button">Sentence Batch</button>
                     <button id="wordTab" class="tab-button">Word Processing</button>
                     <button id="epubTab" class="tab-button">EPUB Processor</button>
                 </div>
@@ -39,6 +40,7 @@
                     <span style="color: #2d3748; font-weight: 500;">Sentence-by-Sentence Translation</span>
                     <p style="color: #4a5568; font-size: 0.9em; margin: 5px 0 0 0;">5 sentences processed in parallel for maximum speed</p>
                 </div>
+
 
                 <!-- Word Processing Mode Info -->
                 <div class="input-group" id="wordModeInfo" style="display: none;">
@@ -183,6 +185,27 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Batch Language Configuration -->
+                <div class="input-group" id="batchLanguageConfigGroup" style="display: none;">
+                    <h3 style="color: #4a5568; margin-bottom: 15px;">Language Configuration</h3>
+                    <div style="background: #f7fafc; padding: 15px; border-radius: 8px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div>
+                                <label for="batchSourceLanguage">Source Language:</label>
+                                <select id="batchSourceLanguage">
+                                    <option value="German">German</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="batchTargetLanguage">Target Language:</label>
+                                <select id="batchTargetLanguage">
+                                    <option value="English">English</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 
 
                 <div class="button-group">
@@ -241,6 +264,30 @@
                     <div class="result-card">
                         <h3>Processing Time</h3>
                         <span id="processingTime" class="result-number">0s</span>
+                    </div>
+                </div>
+
+                <!-- Sentence Batch Processing Results -->
+                <div class="results-grid" id="sentenceBatchResults" style="display: none;">
+                    <div class="result-card">
+                        <h3>Total Lines</h3>
+                        <span id="batchTotalLines" class="result-number">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Processed</h3>
+                        <span id="batchProcessedLines" class="result-number">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Successful</h3>
+                        <span id="batchSuccessfulLines" class="result-number success">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Failed</h3>
+                        <span id="batchFailedLines" class="result-number error">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Processing Time</h3>
+                        <span id="batchProcessingTime" class="result-number">0s</span>
                     </div>
                 </div>
 

@@ -23,7 +23,15 @@ class BookProcessorUI {
         this.textLength = 0;
         this.epubStartTime = null;
         
-        this.currentMode = 'sentence'; // 'sentence', 'word', or 'epub'
+        // Sentence Batch processing state
+        this.isBatchProcessing = false;
+        this.batchTotalLines = 0;
+        this.batchProcessedLines = 0;
+        this.batchSuccessfulLines = 0;
+        this.batchFailedLines = 0;
+        this.batchStartTime = null;
+        
+        this.currentMode = 'sentence'; // 'sentence', 'sentenceBatch', 'word', or 'epub'
         
         this.initializeElements();
         this.attachEventListeners();
@@ -57,9 +65,12 @@ class BookProcessorUI {
             processingTimeDisplay: document.getElementById('processingTime'),
             sourceLanguage: document.getElementById('sourceLanguage'),
             targetLanguage: document.getElementById('targetLanguage'),
+            batchSourceLanguage: document.getElementById('batchSourceLanguage'),
+            batchTargetLanguage: document.getElementById('batchTargetLanguage'),
             
             // Tab elements
             sentenceTab: document.getElementById('sentenceTab'),
+            sentenceBatchTab: document.getElementById('sentenceBatchTab'),
             wordTab: document.getElementById('wordTab'),
             epubTab: document.getElementById('epubTab'),
             
@@ -76,8 +87,16 @@ class BookProcessorUI {
             epubFileInput: document.getElementById('epubFileInput'),
             browseEpubBtn: document.getElementById('browseEpubBtn'),
             sentenceResults: document.getElementById('sentenceResults'),
+            sentenceBatchResults: document.getElementById('sentenceBatchResults'),
             wordResults: document.getElementById('wordResults'),
             epubResults: document.getElementById('epubResults'),
+            
+            // Sentence batch processing elements
+            batchTotalLinesDisplay: document.getElementById('batchTotalLines'),
+            batchProcessedLinesDisplay: document.getElementById('batchProcessedLines'),
+            batchSuccessfulLinesDisplay: document.getElementById('batchSuccessfulLines'),
+            batchFailedLinesDisplay: document.getElementById('batchFailedLines'),
+            batchProcessingTimeDisplay: document.getElementById('batchProcessingTime'),
             
             // Word processing elements
             totalWordsDisplay: document.getElementById('totalWords'),
@@ -102,6 +121,7 @@ class BookProcessorUI {
         
         // Tab switching
         this.elements.sentenceTab.addEventListener('click', () => this.switchMode('sentence'));
+        this.elements.sentenceBatchTab.addEventListener('click', () => this.switchMode('sentenceBatch'));
         this.elements.wordTab.addEventListener('click', () => this.switchMode('word'));
         this.elements.epubTab.addEventListener('click', () => this.switchMode('epub'));
         
@@ -145,19 +165,47 @@ class BookProcessorUI {
         // Clear existing options
         this.elements.sourceLanguage.innerHTML = '';
         this.elements.targetLanguage.innerHTML = '';
+        this.elements.batchSourceLanguage.innerHTML = '';
+        this.elements.batchTargetLanguage.innerHTML = '';
         
-        // Populate both select elements
+        // Populate all select elements
         Object.values(supportedLanguages).forEach(language => {
             const sourceOption = new Option(language, language);
             const targetOption = new Option(language, language);
+            const batchSourceOption = new Option(language, language);
+            const batchTargetOption = new Option(language, language);
             
             this.elements.sourceLanguage.add(sourceOption);
             this.elements.targetLanguage.add(targetOption);
+            this.elements.batchSourceLanguage.add(batchSourceOption);
+            this.elements.batchTargetLanguage.add(batchTargetOption);
         });
         
         // Set default selections
         this.elements.sourceLanguage.value = defaultSource;
         this.elements.targetLanguage.value = defaultTarget;
+        this.elements.batchSourceLanguage.value = defaultSource;
+        this.elements.batchTargetLanguage.value = defaultTarget;
+        
+        // Load saved batch settings if available
+        this.loadBatchLanguageDefaults();
+    }
+
+    async loadBatchLanguageDefaults() {
+        try {
+            const response = await fetch('http://localhost:3005/api/last-settings/batchProcessing');
+            if (response.ok) {
+                const batchSettings = await response.json();
+                if (batchSettings.sourceLanguage) {
+                    this.elements.batchSourceLanguage.value = batchSettings.sourceLanguage;
+                }
+                if (batchSettings.targetLanguage) {
+                    this.elements.batchTargetLanguage.value = batchSettings.targetLanguage;
+                }
+            }
+        } catch (error) {
+            console.log('No saved batch language settings found, using defaults');
+        }
     }
 
     addLog(message, type = 'info') {
@@ -179,6 +227,7 @@ class BookProcessorUI {
         
         // Update tab appearance
         this.elements.sentenceTab.classList.toggle('active', mode === 'sentence');
+        this.elements.sentenceBatchTab.classList.toggle('active', mode === 'sentenceBatch');
         this.elements.wordTab.classList.toggle('active', mode === 'word');
         this.elements.epubTab.classList.toggle('active', mode === 'epub');
         
@@ -193,14 +242,21 @@ class BookProcessorUI {
         const textFileGroup = document.getElementById('textFileGroup');
         if (textFileGroup) textFileGroup.style.display = mode === 'epub' ? 'none' : 'block';
         
-        // Hide AI and Translation config for EPUB mode (it's just a converter)
+        // Hide AI and Translation config for EPUB mode and Sentence Batch mode
         const aiConfigGroup = document.getElementById('aiConfigGroup');
         const translationConfigGroup = document.getElementById('translationConfigGroup');
-        if (aiConfigGroup) aiConfigGroup.style.display = mode === 'epub' ? 'none' : 'block';
-        if (translationConfigGroup) translationConfigGroup.style.display = mode === 'epub' ? 'none' : 'block';
+        const rollbackModelsGroup = document.getElementById('rollbackModelsGroup');
+        const batchLanguageConfigGroup = document.getElementById('batchLanguageConfigGroup');
+        if (aiConfigGroup) aiConfigGroup.style.display = (mode === 'epub' || mode === 'sentenceBatch') ? 'none' : 'block';
+        if (translationConfigGroup) translationConfigGroup.style.display = (mode === 'epub' || mode === 'sentenceBatch') ? 'none' : 'block';
+        if (rollbackModelsGroup) rollbackModelsGroup.style.display = (mode === 'epub' || mode === 'sentenceBatch') ? 'none' : 'block';
+        
+        // Show batch language config only for sentence batch mode
+        if (batchLanguageConfigGroup) batchLanguageConfigGroup.style.display = mode === 'sentenceBatch' ? 'block' : 'none';
         
         // Show/hide results
         this.elements.sentenceResults.style.display = mode === 'sentence' ? 'grid' : 'none';
+        this.elements.sentenceBatchResults.style.display = mode === 'sentenceBatch' ? 'grid' : 'none';
         this.elements.wordResults.style.display = mode === 'word' ? 'grid' : 'none';
         this.elements.epubResults.style.display = mode === 'epub' ? 'grid' : 'none';
         
@@ -251,6 +307,16 @@ class BookProcessorUI {
             }
             if (settings.targetLanguage) {
                 this.elements.targetLanguage.value = settings.targetLanguage;
+            }
+            
+            // Load batch language settings
+            if (this.currentMode === 'sentenceBatch') {
+                if (settings.sourceLanguage) {
+                    this.elements.batchSourceLanguage.value = settings.sourceLanguage;
+                }
+                if (settings.targetLanguage) {
+                    this.elements.batchTargetLanguage.value = settings.targetLanguage;
+                }
             }
             
             // Load file paths based on current mode
@@ -384,6 +450,24 @@ class BookProcessorUI {
                 const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
                 this.elements.processingTimeDisplay.textContent = `${elapsed}s`;
             }
+        } else if (this.currentMode === 'sentenceBatch') {
+            // Sentence batch processing progress
+            const progressPercent = this.batchTotalLines > 0 ? (this.batchProcessedLines / this.batchTotalLines) * 100 : 0;
+            const successRate = this.batchProcessedLines > 0 ? ((this.batchSuccessfulLines / this.batchProcessedLines) * 100).toFixed(1) : 0;
+            
+            this.elements.progress.textContent = `${this.batchProcessedLines}/${this.batchTotalLines}`;
+            this.elements.successRate.textContent = `${successRate}%`;
+            this.elements.progressFill.style.width = `${progressPercent}%`;
+            
+            this.elements.batchTotalLinesDisplay.textContent = this.batchTotalLines;
+            this.elements.batchProcessedLinesDisplay.textContent = this.batchProcessedLines;
+            this.elements.batchSuccessfulLinesDisplay.textContent = this.batchSuccessfulLines;
+            this.elements.batchFailedLinesDisplay.textContent = this.batchFailedLines;
+            
+            if (this.batchStartTime) {
+                const elapsed = Math.floor((Date.now() - this.batchStartTime) / 1000);
+                this.elements.batchProcessingTimeDisplay.textContent = `${elapsed}s`;
+            }
         } else if (this.currentMode === 'word') {
             // Word processing progress
             const progressPercent = this.newWords > 0 ? (this.processedWords / this.newWords) * 100 : 0;
@@ -415,12 +499,15 @@ class BookProcessorUI {
     }
 
     updateUI() {
-        const isAnyProcessing = this.isProcessing || this.isWordProcessing || this.isEpubProcessing;
+        const isAnyProcessing = this.isProcessing || this.isWordProcessing || this.isEpubProcessing || this.isBatchProcessing;
         let currentProcessing, hasResults;
         
         if (this.currentMode === 'sentence') {
             currentProcessing = this.isProcessing;
             hasResults = this.processedLines > 0;
+        } else if (this.currentMode === 'sentenceBatch') {
+            currentProcessing = this.isBatchProcessing;
+            hasResults = this.batchProcessedLines > 0;
         } else if (this.currentMode === 'word') {
             currentProcessing = this.isWordProcessing;
             hasResults = this.processedWords > 0;
@@ -436,6 +523,7 @@ class BookProcessorUI {
         if (currentProcessing) {
             let statusText = 'Processing...';
             if (this.currentMode === 'sentence') statusText = 'Processing Sentences...';
+            else if (this.currentMode === 'sentenceBatch') statusText = 'Batch Processing Sentences...';
             else if (this.currentMode === 'word') statusText = 'Processing Words...';
             else if (this.currentMode === 'epub') statusText = 'Converting EPUB...';
             
@@ -474,6 +562,19 @@ class BookProcessorUI {
             } catch (error) {
                 this.addLog(`Error: ${error.message}`, 'error');
                 this.isProcessing = false;
+                this.updateUI();
+            }
+        } else if (this.currentMode === 'sentenceBatch') {
+            this.isBatchProcessing = true;
+            this.batchStartTime = Date.now();
+            this.resetBatchStats();
+            this.updateUI();
+
+            try {
+                await this.startSentenceBatchProcessing();
+            } catch (error) {
+                this.addLog(`Error: ${error.message}`, 'error');
+                this.isBatchProcessing = false;
                 this.updateUI();
             }
         } else {
@@ -709,6 +810,14 @@ class BookProcessorUI {
         this.wordStartTime = null;
     }
 
+    resetBatchStats() {
+        this.batchTotalLines = 0;
+        this.batchProcessedLines = 0;
+        this.batchSuccessfulLines = 0;
+        this.batchFailedLines = 0;
+        this.batchStartTime = null;
+    }
+
     async startWordProcessing() {
         const filePath = this.elements.textFile.value.trim();
         const databasePath = this.elements.databasePath.value.trim();
@@ -838,6 +947,112 @@ class BookProcessorUI {
         }
     }
 
+    async startSentenceBatchProcessing() {
+        const filePath = this.elements.textFile.value.trim();
+
+        this.addLog('Starting sentence batch processing...', 'info');
+        this.addLog(`File: ${filePath}`, 'info');
+
+        try {
+            const response = await fetch('http://localhost:3005/api/sentence-batch/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    filePath,
+                    sourceLanguage: this.elements.batchSourceLanguage.value,
+                    targetLanguage: this.elements.batchTargetLanguage.value
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                let errorMessage = error.error || 'Failed to start sentence batch processing';
+                if (error.details) errorMessage += `\nDetails: ${error.details}`;
+                if (error.path) errorMessage += `\nFile: ${error.path}`;
+                if (error.code) errorMessage += `\nError Code: ${error.code}`;
+                throw new Error(errorMessage);
+            }
+
+            const result = await response.json();
+            this.addLog(result.message, 'success');
+            
+            this.updateUI();
+
+            // Start polling for batch processing status
+            this.pollBatchStatus();
+
+        } catch (error) {
+            // Display detailed error information
+            const errorLines = error.message.split('\n');
+            errorLines.forEach((line, index) => {
+                if (index === 0) {
+                    this.addLog(`Error starting sentence batch processing: ${line}`, 'error');
+                } else if (line.trim()) {
+                    this.addLog(`  ${line}`, 'error');
+                }
+            });
+            throw error;
+        }
+    }
+
+    async pollBatchStatus() {
+        const pollInterval = 2000; // 2 seconds
+        let lastLogCount = 0;
+        
+        while (this.isBatchProcessing) {
+            try {
+                const response = await fetch('http://localhost:3005/api/sentence-batch/status');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch sentence batch processing status');
+                }
+                
+                const status = await response.json();
+                
+                // Update batch processing state
+                this.isBatchProcessing = status.isRunning;
+                this.batchTotalLines = status.totalLines || this.batchTotalLines;
+                this.batchProcessedLines = status.processedLines || this.batchProcessedLines;
+                this.batchSuccessfulLines = status.successfulLines || this.batchSuccessfulLines;
+                this.batchFailedLines = status.failedLines || this.batchFailedLines;
+                
+                // Add new logs
+                if (status.logs && status.logs.length > lastLogCount) {
+                    for (let i = lastLogCount; i < status.logs.length; i++) {
+                        const logMessage = status.logs[i];
+                        let logType = 'info';
+                        
+                        if (logMessage.includes('✓') || logMessage.includes('success') || logMessage.toLowerCase().includes('completed')) {
+                            logType = 'success';
+                        } else if (logMessage.includes('✗') || logMessage.includes('Error') || logMessage.includes('Failed')) {
+                            logType = 'error';
+                        }
+                        
+                        this.addLogEntry(logMessage, logType);
+                    }
+                    lastLogCount = status.logs.length;
+                }
+                
+                this.updateUI();
+                
+                // Check if processing completed
+                if (!status.isRunning) {
+                    this.isBatchProcessing = false;
+                    this.updateUI();
+                    break;
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+                
+            } catch (error) {
+                this.addLog(`Error polling sentence batch processing status: ${error.message}`, 'error');
+                this.isBatchProcessing = false;
+                this.updateUI();
+                break;
+            }
+        }
+    }
 
     async downloadSQL() {
         try {
@@ -846,6 +1061,9 @@ class BookProcessorUI {
             if (this.currentMode === 'sentence') {
                 endpoint = 'http://localhost:3005/api/download/sql';
                 filename = 'book_sentences_inserts.sql';
+            } else if (this.currentMode === 'sentenceBatch') {
+                endpoint = 'http://localhost:3005/api/sentence-batch/download/jsonl';
+                filename = 'batch_sentences.jsonl';
             } else if (this.currentMode === 'word') {
                 endpoint = 'http://localhost:3005/api/words/download/sql';
                 filename = 'word_translations_inserts.sql';
@@ -861,7 +1079,10 @@ class BookProcessorUI {
             }
             
             const content = await response.text();
-            const contentType = this.currentMode === 'epub' ? 'text/plain' : 'text/sql';
+            let contentType;
+            if (this.currentMode === 'epub') contentType = 'text/plain';
+            else if (this.currentMode === 'sentenceBatch') contentType = 'application/x-jsonlines';
+            else contentType = 'text/sql';
             
             const blob = new Blob([content], { type: contentType });
             const url = URL.createObjectURL(blob);
@@ -875,6 +1096,7 @@ class BookProcessorUI {
 
             let fileType;
             if (this.currentMode === 'sentence') fileType = 'Sentence SQL';
+            else if (this.currentMode === 'sentenceBatch') fileType = 'Batch JSONL';
             else if (this.currentMode === 'word') fileType = 'Word SQL';
             else if (this.currentMode === 'epub') fileType = 'Extracted text';
             
@@ -1083,6 +1305,7 @@ function getCurrentTab() {
     if (activeTab) {
         const tabId = activeTab.id;
         if (tabId === 'sentenceTab') return 'sentenceProcessing';
+        if (tabId === 'sentenceBatchTab') return 'batchProcessing';
         if (tabId === 'wordTab') return 'wordProcessing';
         if (tabId === 'epubTab') return 'epubProcessing';
     }

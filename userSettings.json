@@ -30,6 +30,10 @@
     "rollbackModels": [],
     "sourceLanguage": "",
     "targetLanguage": "",
-    "epubFilePath": ""
+    "epubFilePath": "C:\\Users\\Serhi\\Downloads\\pg1661.epub"
+  },
+  "batchProcessing": {
+    "sourceLanguage": "English",
+    "targetLanguage": "Russian"
   }
 }

@@ -144,13 +144,19 @@ class EPUBReader {
         // Add content from child nodes
         if (node.childNodes) {
             for (let i = 0; i < node.childNodes.length; i++) {
-                text += this.extractTextFromNode(node.childNodes[i], preserveBreaks);
+                text += this.extractTextFromNode(node.childNodes[i], tagName === 'p' ? false : preserveBreaks);
             }
         }
         
-        // Add appropriate line breaks after block elements
-        if (preserveBreaks && this.isBlockElement(tagName)) {
-            // Only add a line break if the text doesn't already end with one
+        // Add appropriate line breaks - only after paragraph elements, not within them
+        if (preserveBreaks && tagName === 'p') {
+            // For paragraph elements, combine all text into one line and add line break at the end
+            text = text.replace(/\s+/g, ' ').trim();
+            if (text) {
+                text += '\n';
+            }
+        } else if (preserveBreaks && this.isBlockElement(tagName) && tagName !== 'p') {
+            // For other block elements (not paragraphs), add line break if needed
             if (text.trim() && !text.endsWith('\n')) {
                 text += '\n';
             }
@@ -187,9 +193,11 @@ class EPUBReader {
 
     cleanText(text) {
         return text
-            .replace(/[ \t]+/g, ' ') // Replace multiple spaces/tabs with single space
-            .replace(/\n[ \t]+/g, '\n') // Remove spaces after newlines
-            .replace(/[ \t]+\n/g, '\n') // Remove spaces before newlines
+            .split('\n') // Split into lines
+            .filter(line => !line.includes('/n')) // Skip lines containing /n
+            .map(line => line.replace(/\s+/g, ' ').trim()) // Clean each line - replace multiple spaces with single space
+            .filter(line => line.length > 0) // Remove empty lines
+            .join('\n') // Join lines back
             .trim();
     }
 

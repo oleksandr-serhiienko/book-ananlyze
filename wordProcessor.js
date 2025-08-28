@@ -3,6 +3,7 @@ import path from 'path';
 import sqlite3 from 'sqlite3';
 import config from './config.js';
 import ModelClient from './modelClient.js';
+import { getLanguageCode } from './constants.js';
 
 class WordProcessor {
     constructor(customDatabasePath = null, customConfig = null, customLogger = null) {
@@ -77,22 +78,6 @@ class WordProcessor {
         }
     }
 
-    getLanguageCode(languageName) {
-        // Convert language names to codes (same mapping as sentence processing)
-        const languageMap = {
-            'German': 'de',
-            'English': 'en', 
-            'Spanish': 'es',
-            'French': 'fr',
-            'Italian': 'it',
-            'Portuguese': 'pt',
-            'Russian': 'ru',
-            'Chinese': 'zh',
-            'Japanese': 'ja',
-            'Korean': 'ko'
-        };
-        return languageMap[languageName] || languageName.toLowerCase().substring(0, 2);
-    }
 
     generateSchemaSQL() {
         const schemaSqls = [
@@ -315,8 +300,8 @@ class WordProcessor {
 
     async getTranslationFromModel(originalWordToQuery) {
         // Use the same language pair format as sentence processing
-        const sourceLanguageCode = this.getLanguageCode(this.modelClient.sourceLanguage);
-        const targetLanguageCode = this.getLanguageCode(this.modelClient.targetLanguage);
+        const sourceLanguageCode = getLanguageCode(this.modelClient.sourceLanguage);
+        const targetLanguageCode = getLanguageCode(this.modelClient.targetLanguage);
         
         // Format: "de-en |word|" or "de-rus |word|" based on current language settings
         const textPrompt = `${sourceLanguageCode}-${targetLanguageCode} |${originalWordToQuery}|`;

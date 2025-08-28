@@ -134,6 +134,18 @@ let wordProcessingState = {
     status: 'idle'
 };
 
+// Global state for sentence batch processing
+let sentenceBatchState = {
+    isRunning: false,
+    logs: [],
+    totalLines: 0,
+    processedLines: 0,
+    successfulLines: 0,
+    failedLines: 0,
+    currentBatchProcessor: null,
+    status: 'idle'
+};
+
 // Global state for EPUB processing
 let epubProcessingState = {
     isRunning: false,
@@ -216,6 +228,39 @@ function addWordLog(message, type = 'info', error = null) {
     
     wordProcessingState.logs.push(logEntry);
     console.log(`WORD ${type.toUpperCase()}: ${logEntry}`);
+}
+
+function addBatchLog(message, type = 'info', error = null) {
+    const timestamp = new Date().toISOString();
+    let logEntry = `[${timestamp}] ${message}`;
+    
+    // Add detailed error information if provided
+    if (error && type === 'error') {
+        logEntry += `\n  Error Details: ${error.message}`;
+        if (error.code) logEntry += `\n  Error Code: ${error.code}`;
+        if (error.errno) logEntry += `\n  Error Number: ${error.errno}`;
+        if (error.path) logEntry += `\n  File Path: ${error.path}`;
+        if (error.stack) {
+            const stackLines = error.stack.split('\n').slice(1, 4); // First 3 stack frames
+            logEntry += `\n  Stack Trace:\n    ${stackLines.join('\n    ')}`;
+        }
+    }
+    
+    sentenceBatchState.logs.push(logEntry);
+    console.log(`BATCH ${type.toUpperCase()}: ${logEntry}`);
+}
+
+function resetBatchProcessingState() {
+    sentenceBatchState = {
+        isRunning: false,
+        logs: [],
+        totalLines: 0,
+        processedLines: 0,
+        successfulLines: 0,
+        failedLines: 0,
+        currentBatchProcessor: null,
+        status: 'idle'
+    };
 }
 
 function resetWordProcessingState() {
@@ -671,6 +716,162 @@ app.get('/api/words/download/sql', (req, res) => {
     } catch (error) {
         addWordLog('Error in word SQL download', 'error', error);
         res.status(500).json({ error: 'Failed to generate word SQL download' });
+    }
+});
+
+// Sentence batch processing endpoints
+app.post('/api/sentence-batch/start', async (req, res) => {
+    try {
+        const { filePath, sourceLanguage, targetLanguage } = req.body;
+
+        if (!filePath) {
+            return res.status(400).json({
+                error: 'Missing required parameter: filePath'
+            });
+        }
+
+        if (sentenceBatchState.isRunning) {
+            return res.status(400).json({
+                error: 'Sentence batch processing is already running'
+            });
+        }
+
+        if (!fs.existsSync(filePath)) {
+            return res.status(400).json({
+                error: `File not found: ${filePath}`
+            });
+        }
+
+        // Reset state
+        resetBatchProcessingState();
+        sentenceBatchState.isRunning = true;
+        sentenceBatchState.status = 'starting';
+
+        addBatchLog('Starting sentence batch processing...');
+        addBatchLog(`File: ${filePath}`);
+
+        // Count lines in file
+        const fileContent = fs.readFileSync(filePath, 'utf8');
+        const lines = fileContent.split('\n').filter(line => line.trim().length > 0);
+        sentenceBatchState.totalLines = lines.length;
+
+        addBatchLog(`Found ${lines.length} lines to process`);
+
+        // Import and start batch processor
+        const BatchSentenceProcessor = (await import('./batchSentenceProcessor.js')).default;
+        const batchProcessor = new BatchSentenceProcessor();
+        sentenceBatchState.currentBatchProcessor = batchProcessor;
+
+        // Start processing asynchronously with periodic status updates
+        (async () => {
+            try {
+                sentenceBatchState.status = 'processing';
+                
+                // Start a polling interval to update state from batch processor
+                const statusInterval = setInterval(() => {
+                    if (batchProcessor && sentenceBatchState.isRunning) {
+                        const currentStats = batchProcessor.getStats();
+                        sentenceBatchState.processedLines = currentStats.processed;
+                        sentenceBatchState.successfulLines = currentStats.successful;
+                        sentenceBatchState.failedLines = currentStats.failed;
+                    }
+                }, 1000); // Update every second
+                
+                const stats = await batchProcessor.processBatchFile(filePath, sourceLanguage, targetLanguage);
+                
+                clearInterval(statusInterval);
+                
+                // Update final stats
+                sentenceBatchState.processedLines = stats.processed;
+                sentenceBatchState.successfulLines = stats.successful;
+                sentenceBatchState.failedLines = stats.failed;
+                sentenceBatchState.status = 'completed';
+                sentenceBatchState.isRunning = false;
+
+                addBatchLog(`Batch processing completed: ${stats.successful}/${stats.processed} successful (${stats.success_rate})`);
+                
+            } catch (error) {
+                addBatchLog('Batch processing failed', 'error', error);
+                sentenceBatchState.status = 'error';
+                sentenceBatchState.isRunning = false;
+            }
+        })();
+
+        res.json({
+            message: 'Sentence batch processing started successfully',
+            totalLines: sentenceBatchState.totalLines
+        });
+
+    } catch (error) {
+        addBatchLog('Error starting sentence batch processing', 'error', error);
+        sentenceBatchState.isRunning = false;
+        sentenceBatchState.status = 'error';
+        res.status(500).json({
+            error: 'Failed to start sentence batch processing',
+            details: error.message
+        });
+    }
+});
+
+app.get('/api/sentence-batch/status', (req, res) => {
+    res.json({
+        isRunning: sentenceBatchState.isRunning,
+        status: sentenceBatchState.status,
+        totalLines: sentenceBatchState.totalLines,
+        processedLines: sentenceBatchState.processedLines,
+        successfulLines: sentenceBatchState.successfulLines,
+        failedLines: sentenceBatchState.failedLines,
+        logs: sentenceBatchState.logs.slice(-50) // Last 50 log entries
+    });
+});
+
+app.post('/api/sentence-batch/stop', (req, res) => {
+    if (sentenceBatchState.currentBatchProcessor) {
+        sentenceBatchState.currentBatchProcessor.stop();
+        sentenceBatchState.currentBatchProcessor = null;
+    }
+    
+    sentenceBatchState.isRunning = false;
+    sentenceBatchState.status = 'stopped';
+    addBatchLog('Sentence batch processing stopped by user request');
+    
+    res.json({ message: 'Sentence batch processing stop requested' });
+});
+
+// Download sentence batch processing results as JSONL
+app.get('/api/sentence-batch/download/jsonl', (req, res) => {
+    try {
+        // Look for the most recent batch JSONL file
+        const batchDir = 'logs/batchSent';
+        if (!fs.existsSync(batchDir)) {
+            return res.status(404).json({ error: 'No batch processing results found' });
+        }
+
+        const files = fs.readdirSync(batchDir).filter(file => file.endsWith('.jsonl'));
+        
+        if (files.length === 0) {
+            return res.status(404).json({ error: 'No JSONL files found' });
+        }
+        
+        // Get the most recent file
+        const mostRecentFile = files.sort((a, b) => {
+            const statA = fs.statSync(path.join(batchDir, a));
+            const statB = fs.statSync(path.join(batchDir, b));
+            return statB.mtime - statA.mtime;
+        })[0];
+        
+        const filePath = path.join(batchDir, mostRecentFile);
+        const jsonlContent = fs.readFileSync(filePath, 'utf8');
+        
+        res.setHeader('Content-Type', 'application/x-jsonlines');
+        res.setHeader('Content-Disposition', 'attachment; filename="batch_sentences.jsonl"');
+        res.send(jsonlContent);
+        
+        addBatchLog(`JSONL file downloaded: ${mostRecentFile}`);
+        
+    } catch (error) {
+        addBatchLog('Error in batch JSONL download', 'error', error);
+        res.status(500).json({ error: 'Failed to generate batch JSONL download' });
     }
 });
 
@@ -1425,7 +1626,7 @@ async function processEPUB(filePath) {
 app.get('/api/last-settings/:tab', (req, res) => {
     try {
         const { tab } = req.params;
-        const validTabs = ['sentenceProcessing', 'wordProcessing', 'epubProcessing'];
+        const validTabs = ['sentenceProcessing', 'batchProcessing', 'wordProcessing', 'epubProcessing'];
         
         if (!validTabs.includes(tab)) {
             return res.status(400).json({ error: 'Invalid tab. Must be one of: sentenceProcessing, wordProcessing, epubProcessing' });

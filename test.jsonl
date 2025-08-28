@@ -1,0 +1,3 @@
+{"request":{"contents":[{"role":"user","parts":[{"text":"de-en |Und er fühlte, daß dieses Erliegen ihn auf ein eingleisiges Leben fixieren mochte.|"}]}],"generationConfig":{"temperature":0.2}}}
+{"request":{"contents":[{"role":"user","parts":[{"text":"de-en |Konnte es sein, fragte er sich, daß das Orakel nicht die Zukunft voraussagte?|"}]}],"generationConfig":{"temperature":0.2}}}
+{"request":{"contents":[{"role":"user","parts":[{"text":"de-en |Konnte es sein, daß das Orakel die Zukunft machte?|"}]}],"generationConfig":{"temperature":0.2}}}
