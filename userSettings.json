@@ -1,12 +1,12 @@
 {
   "sentenceProcessing": {
-    "projectId": "",
-    "location": "",
-    "modelEndpoint": "",
+    "projectId": "188935312243",
+    "location": "europe-southwest1",
+    "modelEndpoint": "projects/188935312243/locations/europe-southwest1/endpoints/3012068123827240960",
     "rollbackModels": [],
-    "sourceLanguage": "",
-    "targetLanguage": "",
-    "textFilePath": "",
+    "sourceLanguage": "German",
+    "targetLanguage": "English",
+    "textFilePath": "test1",
     "databasePath": ""
   },
   "wordProcessing": {
@@ -33,12 +33,17 @@
     "epubFilePath": "C:\\Users\\Serhi\\Downloads\\pg1661.epub"
   },
   "batchProcessing": {
-    "sourceLanguage": "English",
-    "targetLanguage": "Russian"
+    "sourceLanguage": "Russian",
+    "targetLanguage": "German",
+    "textFilePath": "tset1",
+    "responseFilePath": ""
   },
   "wordBatchProcessing": {
     "sourceLanguage": "English",
-    "targetLanguage": "Russian",
-    "databasePath": null
+    "targetLanguage": "Spanish",
+    "databasePath": "",
+    "bookAddress": "C:\\Dev\\Application\\book-ananlyze\\logs\\txt\\extracted_epub_2025-08-28T17-21-02-356Z.txt",
+    "textFilePath": "",
+    "responseFilePath": ""
   }
 }

@@ -50,6 +50,21 @@ function loadUserSettings() {
             sourceLanguage: "",
             targetLanguage: "",
             epubFilePath: ""
+        },
+        batchProcessing: {
+            sourceLanguage: "English",
+            targetLanguage: "Russian",
+            textFilePath: "",
+            bookAddress: "",
+            responseFilePath: ""
+        },
+        wordBatchProcessing: {
+            sourceLanguage: "English",
+            targetLanguage: "Russian",
+            databasePath: "",
+            textFilePath: "",
+            bookAddress: "",
+            responseFilePath: ""
         }
     };
 }
@@ -778,9 +793,24 @@ app.post('/api/sentence-batch/start', async (req, res) => {
         resetBatchProcessingState();
         sentenceBatchState.isRunning = true;
         sentenceBatchState.status = 'starting';
+        
+        // Save file path and language settings to batchProcessing only
+        const userSettings = loadUserSettings();
+        const finalSourceLanguage = sourceLanguage || 'English';
+        const finalTargetLanguage = targetLanguage || 'Russian';
+        
+        // Update batchProcessing (shared between both batch modes)
+        userSettings.batchProcessing.textFilePath = filePath;
+        userSettings.batchProcessing.sourceLanguage = finalSourceLanguage;
+        userSettings.batchProcessing.targetLanguage = finalTargetLanguage;
+        
+        // No sync needed - both batch modes read from batchProcessing
+        
+        saveUserSettings(userSettings);
 
         addBatchLog('Starting sentence batch processing...');
         addBatchLog(`File: ${filePath}`);
+        addBatchLog(`Languages: ${sourceLanguage || 'English'} -> ${targetLanguage || 'Russian'}`);
 
         // Count lines in file
         const fileContent = fs.readFileSync(filePath, 'utf8');
@@ -916,6 +946,11 @@ app.post('/api/sentence-batch/process-response', async (req, res) => {
     }
     
     try {
+        // Save response file path
+        const userSettings = loadUserSettings();
+        userSettings.batchProcessing.responseFilePath = responseFilePath;
+        saveUserSettings(userSettings);
+        
         addBatchLog(`Starting sentence response processing for: ${responseFilePath}`);
         
         const BatchSentenceProcessor = (await import('./batchSentenceProcessor.js')).default;
@@ -1012,6 +1047,24 @@ app.post('/api/word-batch/start', async (req, res) => {
         
         wordBatchState.isRunning = true;
         wordBatchState.status = 'starting';
+        
+        // Save file path and language settings to batchProcessing only
+        const userSettings = loadUserSettings();
+        const finalSourceLanguage = sourceLanguage || 'English';
+        const finalTargetLanguage = targetLanguage || 'Russian';
+        
+        // Update batchProcessing (shared between both batch modes)
+        userSettings.batchProcessing.textFilePath = filePath;
+        userSettings.batchProcessing.sourceLanguage = finalSourceLanguage;
+        userSettings.batchProcessing.targetLanguage = finalTargetLanguage;
+        
+        // Save word-specific database path to wordBatchProcessing
+        if (!userSettings.wordBatchProcessing) userSettings.wordBatchProcessing = {};
+        userSettings.wordBatchProcessing.databasePath = databasePath || '';
+        
+        // No language sync needed - both batch modes read from batchProcessing
+        
+        saveUserSettings(userSettings);
 
         addWordBatchLog('Starting word batch processing...');
         addWordBatchLog(`File: ${filePath}`);
@@ -1135,6 +1188,11 @@ app.post('/api/word-batch/process-response', async (req, res) => {
     }
     
     try {
+        // Save response file path
+        const userSettings = loadUserSettings();
+        userSettings.wordBatchProcessing.responseFilePath = responseFilePath;
+        saveUserSettings(userSettings);
+        
         addWordBatchLog(`Starting response processing for: ${responseFilePath}`);
         
         const WordBatchProcessor = (await import('./wordBatchProcessor.js')).default;
@@ -1954,7 +2012,7 @@ app.get('/api/last-settings/:tab', (req, res) => {
         const validTabs = ['sentenceProcessing', 'batchProcessing', 'wordProcessing', 'wordBatchProcessing', 'epubProcessing'];
         
         if (!validTabs.includes(tab)) {
-            return res.status(400).json({ error: 'Invalid tab. Must be one of: sentenceProcessing, wordProcessing, epubProcessing' });
+            return res.status(400).json({ error: `Invalid tab. Must be one of: ${validTabs.join(', ')}` });
         }
         
         const userSettings = loadUserSettings();
@@ -1962,6 +2020,42 @@ app.get('/api/last-settings/:tab', (req, res) => {
     } catch (error) {
         console.error('Error getting last settings:', error);
         res.status(500).json({ error: 'Failed to load last settings' });
+    }
+});
+
+// Save settings for a specific tab
+app.post('/api/save-settings/:tab', (req, res) => {
+    try {
+        const { tab } = req.params;
+        const validTabs = ['sentenceProcessing', 'batchProcessing', 'wordProcessing', 'wordBatchProcessing', 'epubProcessing'];
+        
+        if (!validTabs.includes(tab)) {
+            return res.status(400).json({ error: `Invalid tab. Must be one of: ${validTabs.join(', ')}` });
+        }
+        
+        const userSettings = loadUserSettings();
+        const newSettings = req.body;
+        
+        // Ensure the tab section exists
+        if (!userSettings[tab]) {
+            userSettings[tab] = {};
+        }
+        
+        // Update the settings for this tab
+        Object.keys(newSettings).forEach(key => {
+            if (newSettings[key] !== undefined && newSettings[key] !== null) {
+                userSettings[tab][key] = newSettings[key];
+            }
+        });
+        
+        // Save the updated settings
+        saveUserSettings(userSettings);
+        
+        console.log(`Settings saved for ${tab}:`, newSettings);
+        res.json({ message: 'Settings saved successfully', tab, settings: userSettings[tab] });
+    } catch (error) {
+        console.error('Error saving settings:', error);
+        res.status(500).json({ error: 'Failed to save settings' });
     }
 });
 

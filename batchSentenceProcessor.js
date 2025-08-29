@@ -52,12 +52,14 @@ class BatchSentenceProcessor {
                 settings.batchProcessing = {};
             }
 
-            // Update batch processing language settings
+            // Update batch processing language settings (shared location)
             settings.batchProcessing.sourceLanguage = sourceLanguage;
             settings.batchProcessing.targetLanguage = targetLanguage;
             if (bookAddress) {
                 settings.batchProcessing.bookAddress = bookAddress;
             }
+            
+            // No sync needed - both batch modes read from batchProcessing
 
             // Save updated settings
             fs.writeFileSync('userSettings.json', JSON.stringify(settings, null, 2), 'utf8');
@@ -131,7 +133,7 @@ class BatchSentenceProcessor {
                         }]
                     }],
                     generationConfig: {
-                        temperature: 0.2
+                        temperature: 0.1
                     }
                 }
             };
@@ -233,7 +235,7 @@ class BatchSentenceProcessor {
                     }]
                 }],
                 generationConfig: {
-                    temperature: 0.2
+                    temperature: 0.1
                 }
             }
         };

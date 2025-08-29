@@ -65,13 +65,18 @@ class WordBatchProcessor {
                 settings.wordBatchProcessing = {};
             }
 
-            // Update word batch processing settings
-            settings.wordBatchProcessing.sourceLanguage = sourceLanguage;
-            settings.wordBatchProcessing.targetLanguage = targetLanguage;
-            settings.wordBatchProcessing.databasePath = databasePath;
-            if (bookAddress) {
-                settings.wordBatchProcessing.bookAddress = bookAddress;
+            // Update shared batchProcessing settings
+            if (!settings.batchProcessing) {
+                settings.batchProcessing = {};
             }
+            settings.batchProcessing.sourceLanguage = sourceLanguage;
+            settings.batchProcessing.targetLanguage = targetLanguage;
+            if (bookAddress) {
+                settings.batchProcessing.bookAddress = bookAddress;
+            }
+            
+            // Update word-specific database path
+            settings.wordBatchProcessing.databasePath = databasePath;
 
             // Save updated settings
             fs.writeFileSync('userSettings.json', JSON.stringify(settings, null, 2), 'utf8');

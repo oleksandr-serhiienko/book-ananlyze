@@ -184,8 +184,47 @@ class BookProcessorUI {
             }
         });
         
-        // Set default file path
-        this.elements.textFile.value = "C:\\Dev\\Application\\book-prepare\\third_book_all_chapters.txt";
+        // Add change listeners for language dropdowns to auto-save
+        this.elements.sourceLanguage.addEventListener('change', () => this.saveCurrentSettings());
+        this.elements.targetLanguage.addEventListener('change', () => this.saveCurrentSettings());
+        this.elements.batchSourceLanguage.addEventListener('change', () => this.saveCurrentSettings());
+        this.elements.batchTargetLanguage.addEventListener('change', () => this.saveCurrentSettings());
+        this.elements.wordBatchSourceLanguage.addEventListener('change', () => this.saveCurrentSettings());
+        this.elements.wordBatchTargetLanguage.addEventListener('change', () => this.saveCurrentSettings());
+        
+        // Add input listeners for manual file path typing
+        this.elements.textFile.addEventListener('blur', () => this.saveCurrentSettings());
+        this.elements.textFile.addEventListener('input', this.debounce(() => this.saveCurrentSettings(), 1000));
+        this.elements.databasePath.addEventListener('blur', () => this.saveCurrentSettings());
+        this.elements.databasePath.addEventListener('input', this.debounce(() => this.saveCurrentSettings(), 1000));
+        this.elements.epubFile.addEventListener('blur', () => this.saveCurrentSettings());
+        this.elements.epubFile.addEventListener('input', this.debounce(() => this.saveCurrentSettings(), 1000));
+        this.elements.responseFilePath.addEventListener('blur', () => this.saveCurrentSettings());
+        this.elements.responseFilePath.addEventListener('input', this.debounce(() => this.saveCurrentSettings(), 1000));
+        this.elements.sentenceResponseFilePath.addEventListener('blur', () => this.saveCurrentSettings());
+        this.elements.sentenceResponseFilePath.addEventListener('input', this.debounce(() => this.saveCurrentSettings(), 1000));
+        this.elements.wordBatchDatabasePath.addEventListener('blur', () => this.saveCurrentSettings());
+        this.elements.wordBatchDatabasePath.addEventListener('input', this.debounce(() => this.saveCurrentSettings(), 1000));
+        
+        // Add listeners for AI configuration fields (for sentence and word tabs)
+        const projectIdElement = document.getElementById('projectId');
+        const locationElement = document.getElementById('location');
+        const modelEndpointElement = document.getElementById('modelEndpoint');
+        
+        if (projectIdElement) {
+            projectIdElement.addEventListener('blur', () => this.saveCurrentSettings());
+            projectIdElement.addEventListener('input', this.debounce(() => this.saveCurrentSettings(), 1000));
+        }
+        if (locationElement) {
+            locationElement.addEventListener('blur', () => this.saveCurrentSettings());
+            locationElement.addEventListener('input', this.debounce(() => this.saveCurrentSettings(), 1000));
+        }
+        if (modelEndpointElement) {
+            modelEndpointElement.addEventListener('blur', () => this.saveCurrentSettings());
+            modelEndpointElement.addEventListener('input', this.debounce(() => this.saveCurrentSettings(), 1000));
+        }
+        
+        // Don't set any default file path - let each tab load its own
     }
 
     async loadSupportedLanguages() {
@@ -349,8 +388,13 @@ class BookProcessorUI {
             this.isEpubProcessing = false;
         }
         
+        // Clear file paths first to prevent contamination
+        this.clearFilePaths();
+        
         // Load saved settings for the new mode
         this.loadSavedSettings();
+        
+        // No sync needed - both batch modes read from same batchProcessing section
         
         this.updateUI();
     }
@@ -386,7 +430,7 @@ class BookProcessorUI {
                 this.elements.targetLanguage.value = settings.targetLanguage;
             }
             
-            // Load batch language settings
+            // Load tab-specific language settings (both batch modes use same settings)
             if (this.currentMode === 'sentenceBatch') {
                 if (settings.sourceLanguage) {
                     this.elements.batchSourceLanguage.value = settings.sourceLanguage;
@@ -394,25 +438,65 @@ class BookProcessorUI {
                 if (settings.targetLanguage) {
                     this.elements.batchTargetLanguage.value = settings.targetLanguage;
                 }
+            } else if (this.currentMode === 'wordBatch') {
+                // Word batch uses same language settings as sentence batch
+                if (settings.sourceLanguage) {
+                    this.elements.wordBatchSourceLanguage.value = settings.sourceLanguage;
+                }
+                if (settings.targetLanguage) {
+                    this.elements.wordBatchTargetLanguage.value = settings.targetLanguage;
+                }
             }
             
-            // Load file paths based on current mode
+            // Load file paths based on current mode (STRICT mode-specific loading)
+            console.log(`Loading settings for ${this.currentMode}:`, settings);
+            
             if (this.currentMode === 'word') {
+                // Word processing: ONLY load wordProcessing settings
                 if (settings.textFilePath) {
                     this.elements.textFile.value = settings.textFilePath;
+                    console.log(`Word mode: loaded textFile = ${settings.textFilePath}`);
                 }
                 if (settings.databasePath) {
                     this.elements.databasePath.value = settings.databasePath;
                     this.updateQuickButtonSelection();
+                    console.log(`Word mode: loaded database = ${settings.databasePath}`);
                 }
             } else if (this.currentMode === 'sentence') {
+                // Sentence processing: ONLY load sentenceProcessing settings
                 if (settings.textFilePath) {
                     this.elements.textFile.value = settings.textFilePath;
+                    console.log(`Sentence mode: loaded textFile = ${settings.textFilePath}`);
                 }
             } else if (this.currentMode === 'epub') {
+                // EPUB processing: ONLY load epubProcessing settings
                 if (settings.epubFilePath) {
                     this.elements.epubFile.value = settings.epubFilePath;
+                    console.log(`EPUB mode: loaded epubFile = ${settings.epubFilePath}`);
                 }
+                // textFile should remain empty for EPUB mode
+            } else if (this.currentMode === 'sentenceBatch') {
+                // Sentence batch: ONLY load batchProcessing settings
+                if (settings.textFilePath) {
+                    this.elements.textFile.value = settings.textFilePath;
+                    console.log(`Sentence Batch mode: loaded textFile = ${settings.textFilePath}`);
+                }
+                if (settings.responseFilePath) {
+                    this.elements.sentenceResponseFilePath.value = settings.responseFilePath;
+                    console.log(`Sentence Batch mode: loaded responseFile = ${settings.responseFilePath}`);
+                }
+            } else if (this.currentMode === 'wordBatch') {
+                // Word batch: Load shared batchProcessing settings + word-specific database
+                if (settings.textFilePath) {
+                    this.elements.textFile.value = settings.textFilePath;
+                    console.log(`Word Batch mode: loaded textFile = ${settings.textFilePath}`);
+                }
+                if (settings.responseFilePath) {
+                    this.elements.responseFilePath.value = settings.responseFilePath;
+                    console.log(`Word Batch mode: loaded responseFile = ${settings.responseFilePath}`);
+                }
+                // Load database from wordBatchProcessing section (word-specific)
+                this.loadWordBatchSpecificSettings();
             }
             
             // Load rollback models
@@ -448,6 +532,8 @@ class BookProcessorUI {
             const filePath = file.path || file.name;
             this.elements.textFile.value = filePath;
             this.addLog(`Text file selected: ${filePath}`, 'info');
+            // Save the file path immediately
+            this.saveCurrentSettings();
         }
     }
 
@@ -463,6 +549,8 @@ class BookProcessorUI {
             this.elements.databasePath.value = filePath;
             this.updateQuickButtonSelection();
             this.addLog(`Database file selected: ${filePath}`, 'info');
+            // Save the database path immediately
+            this.saveCurrentSettings();
         }
     }
 
@@ -476,6 +564,8 @@ class BookProcessorUI {
             const filePath = file.path || file.name;
             this.elements.wordBatchDatabasePath.value = filePath;
             this.addLog(`Word batch database file selected: ${filePath}`, 'info');
+            // Save the word batch database path immediately
+            this.saveCurrentSettings();
         }
     }
 
@@ -489,6 +579,8 @@ class BookProcessorUI {
             const filePath = file.path || file.name;
             this.elements.responseFilePath.value = filePath;
             this.addLog(`Response file selected: ${filePath}`, 'info');
+            // Save the response file path immediately
+            this.saveCurrentSettings();
         }
     }
 
@@ -572,6 +664,8 @@ class BookProcessorUI {
             const filePath = file.path || file.name;
             this.elements.sentenceResponseFilePath.value = filePath;
             this.addLog(`Sentence response file selected: ${filePath}`, 'info');
+            // Save the sentence response file path immediately
+            this.saveCurrentSettings();
         }
     }
 
@@ -662,6 +756,8 @@ class BookProcessorUI {
                 const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
                 this.elements.epubFileSizeDisplay.textContent = `${sizeInMB} MB`;
             }
+            // Save the EPUB file path immediately
+            this.saveCurrentSettings();
         }
     }
 
@@ -687,6 +783,137 @@ class BookProcessorUI {
                 btn.classList.add('selected');
             }
         });
+    }
+
+    clearFilePaths() {
+        // Clear all file path inputs to prevent cross-tab contamination
+        this.elements.textFile.value = '';
+        this.elements.databasePath.value = '';
+        this.elements.epubFile.value = '';
+        this.elements.responseFilePath.value = '';
+        this.elements.sentenceResponseFilePath.value = '';
+        this.elements.wordBatchDatabasePath.value = '';
+        
+        // Clear EPUB file size display
+        if (this.elements.epubFileSizeDisplay) {
+            this.elements.epubFileSizeDisplay.textContent = '';
+        }
+        
+        // Clear database selection
+        this.updateQuickButtonSelection();
+    }
+
+    debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
+    // Removed syncBatchSettings - both batch modes now read from same batchProcessing section
+
+    async saveCurrentSettings() {
+        try {
+            const currentTab = getCurrentTab();
+            const settings = {};
+            
+            // Collect current UI values based on the active tab
+            if (this.currentMode === 'sentence') {
+                settings.textFilePath = this.elements.textFile.value.trim();
+                settings.sourceLanguage = this.elements.sourceLanguage.value;
+                settings.targetLanguage = this.elements.targetLanguage.value;
+                settings.projectId = document.getElementById('projectId')?.value || '';
+                settings.location = document.getElementById('location')?.value || '';
+                settings.modelEndpoint = document.getElementById('modelEndpoint')?.value || '';
+            } else if (this.currentMode === 'word') {
+                settings.textFilePath = this.elements.textFile.value.trim();
+                settings.databasePath = this.elements.databasePath.value.trim();
+                settings.sourceLanguage = this.elements.sourceLanguage.value;
+                settings.targetLanguage = this.elements.targetLanguage.value;
+                settings.projectId = document.getElementById('projectId')?.value || '';
+                settings.location = document.getElementById('location')?.value || '';
+                settings.modelEndpoint = document.getElementById('modelEndpoint')?.value || '';
+            } else if (this.currentMode === 'epub') {
+                settings.epubFilePath = this.elements.epubFile.value.trim();
+            } else if (this.currentMode === 'sentenceBatch') {
+                settings.textFilePath = this.elements.textFile.value.trim();
+                settings.responseFilePath = this.elements.sentenceResponseFilePath.value.trim();
+                settings.sourceLanguage = this.elements.batchSourceLanguage.value;
+                settings.targetLanguage = this.elements.batchTargetLanguage.value;
+            } else if (this.currentMode === 'wordBatch') {
+                // Shared settings go to batchProcessing
+                settings.textFilePath = this.elements.textFile.value.trim();
+                settings.responseFilePath = this.elements.responseFilePath.value.trim();
+                settings.sourceLanguage = this.elements.wordBatchSourceLanguage.value;
+                settings.targetLanguage = this.elements.wordBatchTargetLanguage.value;
+                
+                // Save word-specific database to wordBatchProcessing separately
+                this.saveWordBatchSpecificSettings();
+            }
+            
+            // Send to backend to save
+            const response = await fetch(`http://localhost:3005/api/save-settings/${currentTab}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(settings)
+            });
+            
+            if (!response.ok) {
+                console.warn('Failed to save settings:', await response.text());
+            } else {
+                console.log(`Settings saved for ${currentTab}:`, settings);
+            }
+        } catch (error) {
+            console.warn('Error saving current settings:', error.message);
+        }
+    }
+
+    async loadWordBatchSpecificSettings() {
+        try {
+            // Load word-specific settings (like database path) from wordBatchProcessing
+            const response = await fetch('http://localhost:3005/api/last-settings/wordBatchProcessing');
+            if (response.ok) {
+                const wordBatchSettings = await response.json();
+                if (wordBatchSettings.databasePath) {
+                    this.elements.wordBatchDatabasePath.value = wordBatchSettings.databasePath;
+                    console.log(`Word Batch: loaded database = ${wordBatchSettings.databasePath}`);
+                }
+            }
+        } catch (error) {
+            console.log('Could not load word batch specific settings:', error.message);
+        }
+    }
+
+    async saveWordBatchSpecificSettings() {
+        try {
+            // Save word-specific settings (like database path) to wordBatchProcessing
+            const wordSpecificSettings = {
+                databasePath: this.elements.wordBatchDatabasePath.value.trim()
+            };
+            
+            const response = await fetch('http://localhost:3005/api/save-settings/wordBatchProcessing', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(wordSpecificSettings)
+            });
+            
+            if (!response.ok) {
+                console.warn('Failed to save word batch specific settings');
+            } else {
+                console.log('Word batch specific settings saved:', wordSpecificSettings);
+            }
+        } catch (error) {
+            console.log('Could not save word batch specific settings:', error.message);
+        }
     }
 
     updateProgress() {
@@ -1727,7 +1954,7 @@ function getCurrentTab() {
         if (tabId === 'sentenceTab') return 'sentenceProcessing';
         if (tabId === 'sentenceBatchTab') return 'batchProcessing';
         if (tabId === 'wordTab') return 'wordProcessing';
-        if (tabId === 'wordBatchTab') return 'wordBatchProcessing';
+        if (tabId === 'wordBatchTab') return 'batchProcessing'; // Same as sentenceBatch
         if (tabId === 'epubTab') return 'epubProcessing';
     }
     
