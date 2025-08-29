@@ -231,7 +231,7 @@ def get_translation_from_model(client, model_path_str, original_word_to_query):
         types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=types.HarmBlockThreshold.BLOCK_NONE)
     ]
     generate_content_config_obj = types.GenerateContentConfig(
-        temperature=0.2, 
+        temperature=0.1, 
         top_p=0.95, 
         max_output_tokens=4096, 
         safety_settings=safety_settings_list

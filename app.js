@@ -87,6 +87,12 @@ class BookProcessorUI {
             browseResponseBtn: document.getElementById('browseResponseBtn'),
             processResponseBtn: document.getElementById('processResponse'),
             
+            // Sentence response processing elements
+            sentenceResponseFilePath: document.getElementById('sentenceResponseFilePath'),
+            sentenceResponseFileInput: document.getElementById('sentenceResponseFileInput'),
+            browseSentenceResponseBtn: document.getElementById('browseSentenceResponseBtn'),
+            processSentenceResponseBtn: document.getElementById('processSentenceResponse'),
+            
             // Tab elements
             sentenceTab: document.getElementById('sentenceTab'),
             sentenceBatchTab: document.getElementById('sentenceBatchTab'),
@@ -165,6 +171,9 @@ class BookProcessorUI {
         this.elements.browseResponseBtn.addEventListener('click', () => this.browseResponseFile());
         this.elements.responseFileInput.addEventListener('change', (e) => this.handleResponseFileSelect(e));
         this.elements.processResponseBtn.addEventListener('click', () => this.processResponseFile());
+        this.elements.browseSentenceResponseBtn.addEventListener('click', () => this.browseSentenceResponseFile());
+        this.elements.sentenceResponseFileInput.addEventListener('change', (e) => this.handleSentenceResponseFileSelect(e));
+        this.elements.processSentenceResponseBtn.addEventListener('click', () => this.processSentenceResponseFile());
         this.elements.browseEpubBtn.addEventListener('click', () => this.browseEpubFile());
         this.elements.epubFileInput.addEventListener('change', (e) => this.handleEpubFileSelect(e));
         
@@ -301,8 +310,9 @@ class BookProcessorUI {
         if (batchLanguageConfigGroup) batchLanguageConfigGroup.style.display = mode === 'sentenceBatch' ? 'block' : 'none';
         if (wordBatchConfigGroup) wordBatchConfigGroup.style.display = mode === 'wordBatch' ? 'block' : 'none';
         
-        // Show/hide process response button for word batch mode
+        // Show/hide process response buttons for respective modes
         this.elements.processResponseBtn.style.display = mode === 'wordBatch' ? 'inline-block' : 'none';
+        this.elements.processSentenceResponseBtn.style.display = mode === 'sentenceBatch' ? 'inline-block' : 'none';
         
         // Show/hide results
         this.elements.sentenceResults.style.display = mode === 'sentence' ? 'grid' : 'none';
@@ -549,6 +559,89 @@ class BookProcessorUI {
             // Re-enable button
             this.elements.processResponseBtn.disabled = false;
             this.elements.processResponseBtn.textContent = 'Process Response File';
+        }
+    }
+
+    browseSentenceResponseFile() {
+        this.elements.sentenceResponseFileInput.click();
+    }
+
+    handleSentenceResponseFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) {
+            const filePath = file.path || file.name;
+            this.elements.sentenceResponseFilePath.value = filePath;
+            this.addLog(`Sentence response file selected: ${filePath}`, 'info');
+        }
+    }
+
+    async processSentenceResponseFile() {
+        const responseFilePath = this.elements.sentenceResponseFilePath.value.trim();
+        
+        if (!responseFilePath) {
+            this.addLog('Please select a sentence response file (.jsonl)', 'error');
+            return;
+        }
+        
+        this.addLog('Starting sentence response file processing...', 'info');
+        this.addLog(`File: ${responseFilePath}`, 'info');
+        
+        // Disable button during processing
+        this.elements.processSentenceResponseBtn.disabled = true;
+        this.elements.processSentenceResponseBtn.textContent = 'Processing...';
+        
+        try {
+            const response = await fetch('http://localhost:3005/api/sentence-batch/process-response', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    responseFilePath
+                })
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.details || error.error || 'Processing failed');
+            }
+            
+            const result = await response.json();
+            this.addLog(result.message, 'success');
+            
+            if (result.results) {
+                const r = result.results;
+                this.addLog(`📊 Processing Results:`, 'info');
+                this.addLog(`  Total entries: ${r.total_entries}`, 'info');
+                this.addLog(`  Processed: ${r.processed}`, 'info');
+                this.addLog(`  Successful: ${r.successful}`, 'success');
+                this.addLog(`  Failed: ${r.failed}`, r.failed > 0 ? 'error' : 'info');
+                this.addLog(`  Success rate: ${r.success_rate}`, 'info');
+                this.addLog(`✅ SQL file created: ${r.sql_output_file}`, 'success');
+                
+                if (r.failed > 0) {
+                    this.addLog(`❌ Error log: ${r.error_log_file}`, 'info');
+                    
+                    // Show failed sentences retry file info
+                    if (r.failed_sentences_retry_file && r.failed_sentences_count > 0) {
+                        this.addLog(`🔄 Retry file created: ${r.failed_sentences_retry_file}`, 'info');
+                        this.addLog(`  ➡️ Contains ${r.failed_sentences_count} failed sentences for re-batching`, 'info');
+                        this.addLog(`  💡 You can use this file for another batch processing attempt`, 'info');
+                    }
+                }
+                
+                // Enable download button if there were successful results
+                if (r.successful > 0) {
+                    this.elements.downloadBtn.disabled = false;
+                }
+            }
+            
+        } catch (error) {
+            this.addLog(`Sentence response processing failed: ${error.message}`, 'error');
+        } finally {
+            // Re-enable button
+            this.elements.processSentenceResponseBtn.disabled = false;
+            this.elements.processSentenceResponseBtn.textContent = 'Process Sentence Response';
         }
     }
 
@@ -1365,8 +1458,15 @@ class BookProcessorUI {
                 endpoint = 'http://localhost:3005/api/download/sql';
                 filename = 'book_sentences_inserts.sql';
             } else if (this.currentMode === 'sentenceBatch') {
-                endpoint = 'http://localhost:3005/api/sentence-batch/download/jsonl';
-                filename = 'batch_sentences.jsonl';
+                // Check if we need to download sentence response processing results or batch JSONL
+                const sentenceResponseFilePath = this.elements.sentenceResponseFilePath.value.trim();
+                if (sentenceResponseFilePath) {
+                    endpoint = 'http://localhost:3005/api/sentence-batch/download/response-sql';
+                    filename = 'response_sentences.sql';
+                } else {
+                    endpoint = 'http://localhost:3005/api/sentence-batch/download/jsonl';
+                    filename = 'batch_sentences.jsonl';
+                }
             } else if (this.currentMode === 'word') {
                 endpoint = 'http://localhost:3005/api/words/download/sql';
                 filename = 'word_translations_inserts.sql';
@@ -1409,11 +1509,14 @@ class BookProcessorUI {
 
             let fileType;
             if (this.currentMode === 'sentence') fileType = 'Sentence SQL';
-            else if (this.currentMode === 'sentenceBatch') fileType = 'Batch JSONL';
+            else if (this.currentMode === 'sentenceBatch') {
+                const sentenceResponseFilePath = this.elements.sentenceResponseFilePath.value.trim();
+                fileType = sentenceResponseFilePath ? 'Sentence Response Processing SQL' : 'Sentence Batch JSONL';
+            }
             else if (this.currentMode === 'word') fileType = 'Word SQL';
             else if (this.currentMode === 'wordBatch') {
                 const responseFilePath = this.elements.responseFilePath.value.trim();
-                fileType = responseFilePath ? 'Response Processing SQL' : 'Word Batch JSONL';
+                fileType = responseFilePath ? 'Word Response Processing SQL' : 'Word Batch JSONL';
             }
             else if (this.currentMode === 'epub') fileType = 'Extracted text';
             

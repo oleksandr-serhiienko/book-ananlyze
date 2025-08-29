@@ -239,7 +239,7 @@ class WordBatchProcessor {
                         }]
                     }],
                     generationConfig: {
-                        temperature: 0.2
+                        temperature: 0.1
                     }
                 }
             };
@@ -344,7 +344,7 @@ class WordBatchProcessor {
                     }]
                 }],
                 generationConfig: {
-                    temperature: 0.2
+                    temperature: 0.1
                 }
             }
         };
@@ -522,17 +522,17 @@ class WordBatchProcessor {
                 if (assistantContentJson) {
                     if (this.extractAndGenerateSQLForWord(assistantContentJson, originalWord, responseText)) {
                         successCount++;
-                        console.log(`✅ Successfully processed: ${originalWord}`);
+                        //console.log(`✅ Successfully processed: ${originalWord}`);
                     } else {
                         this.addFailedWordForRetry(originalWord, requestText);
                         failedCount++;
-                        console.log(`❌ Failed validation for: ${originalWord}`);
+                        //console.log(`❌ Failed validation for: ${originalWord}`);
                     }
                 } else {
                     this.logError(originalWord, "Failed to parse response text as valid JSON", responseText);
                     this.addFailedWordForRetry(originalWord, requestText);
                     failedCount++;
-                    console.log(`❌ Failed parsing for: ${originalWord}`);
+                    //console.log(`❌ Failed parsing for: ${originalWord}`);
                 }
                 
                 processedCount++;

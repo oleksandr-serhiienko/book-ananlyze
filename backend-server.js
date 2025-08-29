@@ -907,6 +907,80 @@ app.get('/api/sentence-batch/download/jsonl', (req, res) => {
     }
 });
 
+// Process Vertex AI response file for sentence batch
+app.post('/api/sentence-batch/process-response', async (req, res) => {
+    const { responseFilePath } = req.body;
+    
+    if (!responseFilePath) {
+        return res.status(400).json({ error: 'Response file path is required' });
+    }
+    
+    try {
+        addBatchLog(`Starting sentence response processing for: ${responseFilePath}`);
+        
+        const BatchSentenceProcessor = (await import('./batchSentenceProcessor.js')).default;
+        const processor = new BatchSentenceProcessor();
+        
+        const results = await processor.processVertexAIResponseFile(responseFilePath);
+        
+        addBatchLog(`Sentence response processing completed successfully`);
+        addBatchLog(`Total entries: ${results.total_entries}`);
+        addBatchLog(`Successful: ${results.successful}`);
+        addBatchLog(`Failed: ${results.failed}`);
+        addBatchLog(`Success rate: ${results.success_rate}`);
+        addBatchLog(`SQL output: ${results.sql_output_file}`);
+        
+        res.json({
+            message: 'Sentence response processing completed',
+            results
+        });
+        
+    } catch (error) {
+        addBatchLog(`Sentence response processing failed: ${error.message}`, 'error');
+        res.status(500).json({
+            error: 'Sentence response processing failed',
+            details: error.message
+        });
+    }
+});
+
+// Download sentence batch response processing results as SQL
+app.get('/api/sentence-batch/download/response-sql', (req, res) => {
+    try {
+        // Look for the most recent sentence response processing SQL file
+        const sqlDir = 'logs/sql';
+        if (!fs.existsSync(sqlDir)) {
+            return res.status(404).json({ error: 'No sentence response processing results found' });
+        }
+
+        const files = fs.readdirSync(sqlDir).filter(file => file.startsWith('response_sentences_') && file.endsWith('.sql'));
+        
+        if (files.length === 0) {
+            return res.status(404).json({ error: 'No sentence response SQL files found' });
+        }
+        
+        // Get the most recent file
+        const mostRecentFile = files.sort((a, b) => {
+            const statA = fs.statSync(path.join(sqlDir, a));
+            const statB = fs.statSync(path.join(sqlDir, b));
+            return statB.mtime - statA.mtime;
+        })[0];
+        
+        const filePath = path.join(sqlDir, mostRecentFile);
+        const sqlContent = fs.readFileSync(filePath, 'utf8');
+        
+        res.setHeader('Content-Type', 'text/sql');
+        res.setHeader('Content-Disposition', 'attachment; filename="response_sentences.sql"');
+        res.send(sqlContent);
+        
+        addBatchLog(`Sentence response SQL file downloaded: ${mostRecentFile}`);
+        
+    } catch (error) {
+        addBatchLog('Error in sentence response SQL download', 'error', error);
+        res.status(500).json({ error: 'Failed to download sentence response SQL file' });
+    }
+});
+
 // Word batch processing endpoints
 app.post('/api/word-batch/start', async (req, res) => {
     try {
