@@ -1052,6 +1052,80 @@ app.get('/api/word-batch/download/jsonl', (req, res) => {
     }
 });
 
+// Process Vertex AI response file for word batch
+app.post('/api/word-batch/process-response', async (req, res) => {
+    const { responseFilePath } = req.body;
+    
+    if (!responseFilePath) {
+        return res.status(400).json({ error: 'Response file path is required' });
+    }
+    
+    try {
+        addWordBatchLog(`Starting response processing for: ${responseFilePath}`);
+        
+        const WordBatchProcessor = (await import('./wordBatchProcessor.js')).default;
+        const processor = new WordBatchProcessor();
+        
+        const results = await processor.processVertexAIResponseFile(responseFilePath);
+        
+        addWordBatchLog(`Response processing completed successfully`);
+        addWordBatchLog(`Total entries: ${results.total_entries}`);
+        addWordBatchLog(`Successful: ${results.successful}`);
+        addWordBatchLog(`Failed: ${results.failed}`);
+        addWordBatchLog(`Success rate: ${results.success_rate}`);
+        addWordBatchLog(`SQL output: ${results.sql_output_file}`);
+        
+        res.json({
+            message: 'Response processing completed',
+            results
+        });
+        
+    } catch (error) {
+        addWordBatchLog(`Response processing failed: ${error.message}`, 'error');
+        res.status(500).json({
+            error: 'Response processing failed',
+            details: error.message
+        });
+    }
+});
+
+// Download word batch response processing results as SQL
+app.get('/api/word-batch/download/response-sql', (req, res) => {
+    try {
+        // Look for the most recent response processing SQL file
+        const sqlDir = 'logs/sql';
+        if (!fs.existsSync(sqlDir)) {
+            return res.status(404).json({ error: 'No response processing results found' });
+        }
+
+        const files = fs.readdirSync(sqlDir).filter(file => file.startsWith('response_words_') && file.endsWith('.sql'));
+        
+        if (files.length === 0) {
+            return res.status(404).json({ error: 'No response SQL files found' });
+        }
+        
+        // Get the most recent file
+        const mostRecentFile = files.sort((a, b) => {
+            const statA = fs.statSync(path.join(sqlDir, a));
+            const statB = fs.statSync(path.join(sqlDir, b));
+            return statB.mtime - statA.mtime;
+        })[0];
+        
+        const filePath = path.join(sqlDir, mostRecentFile);
+        const sqlContent = fs.readFileSync(filePath, 'utf8');
+        
+        res.setHeader('Content-Type', 'text/sql');
+        res.setHeader('Content-Disposition', 'attachment; filename="response_words.sql"');
+        res.send(sqlContent);
+        
+        addWordBatchLog(`Response SQL file downloaded: ${mostRecentFile}`);
+        
+    } catch (error) {
+        addWordBatchLog('Error in response SQL download', 'error', error);
+        res.status(500).json({ error: 'Failed to download response SQL file' });
+    }
+});
+
 // Stop processing
 app.post('/api/stop', (req, res) => {
     if (processingState.currentProcess) {

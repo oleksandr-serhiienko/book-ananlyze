@@ -241,6 +241,20 @@
                                 <button type="button" id="browseWordBatchDatabaseBtn" class="btn-browse">Browse...</button>
                             </div>
                         </div>
+                        
+                        <!-- Response Processing Section -->
+                        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e2e8f0;">
+                            <h4 style="color: #4a5568; margin-bottom: 10px;">Response Processing</h4>
+                            <p style="color: #718096; font-size: 0.85em; margin-bottom: 10px;">Process Vertex AI response file (.jsonl) to generate SQL inserts</p>
+                            <div>
+                                <label for="responseFilePath">Response File (.jsonl):</label>
+                                <div class="file-input-group">
+                                    <input type="text" id="responseFilePath" placeholder="Select Vertex AI response file (.jsonl)">
+                                    <input type="file" id="responseFileInput" accept=".jsonl,.json" style="display: none;">
+                                    <button type="button" id="browseResponseBtn" class="btn-browse">Browse...</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -248,6 +262,7 @@
                 <div class="button-group">
                     <button id="startProcessing" class="btn-primary">Start Processing</button>
                     <button id="stopProcessing" class="btn-secondary" disabled>Stop Processing</button>
+                    <button id="processResponse" class="btn-primary" style="display: none;">Process Response File</button>
                     <button id="downloadSQL" class="btn-success" disabled>Download Results</button>
                 </div>
             </section>

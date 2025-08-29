@@ -81,6 +81,12 @@ class BookProcessorUI {
             wordBatchDatabaseInput: document.getElementById('wordBatchDatabaseInput'),
             browseWordBatchDatabaseBtn: document.getElementById('browseWordBatchDatabaseBtn'),
             
+            // Response processing elements
+            responseFilePath: document.getElementById('responseFilePath'),
+            responseFileInput: document.getElementById('responseFileInput'),
+            browseResponseBtn: document.getElementById('browseResponseBtn'),
+            processResponseBtn: document.getElementById('processResponse'),
+            
             // Tab elements
             sentenceTab: document.getElementById('sentenceTab'),
             sentenceBatchTab: document.getElementById('sentenceBatchTab'),
@@ -156,6 +162,9 @@ class BookProcessorUI {
         this.elements.databaseFileInput.addEventListener('change', (e) => this.handleDatabaseFileSelect(e));
         this.elements.browseWordBatchDatabaseBtn.addEventListener('click', () => this.browseWordBatchDatabaseFile());
         this.elements.wordBatchDatabaseInput.addEventListener('change', (e) => this.handleWordBatchDatabaseFileSelect(e));
+        this.elements.browseResponseBtn.addEventListener('click', () => this.browseResponseFile());
+        this.elements.responseFileInput.addEventListener('change', (e) => this.handleResponseFileSelect(e));
+        this.elements.processResponseBtn.addEventListener('click', () => this.processResponseFile());
         this.elements.browseEpubBtn.addEventListener('click', () => this.browseEpubFile());
         this.elements.epubFileInput.addEventListener('change', (e) => this.handleEpubFileSelect(e));
         
@@ -291,6 +300,9 @@ class BookProcessorUI {
         // Show batch-specific language configs
         if (batchLanguageConfigGroup) batchLanguageConfigGroup.style.display = mode === 'sentenceBatch' ? 'block' : 'none';
         if (wordBatchConfigGroup) wordBatchConfigGroup.style.display = mode === 'wordBatch' ? 'block' : 'none';
+        
+        // Show/hide process response button for word batch mode
+        this.elements.processResponseBtn.style.display = mode === 'wordBatch' ? 'inline-block' : 'none';
         
         // Show/hide results
         this.elements.sentenceResults.style.display = mode === 'sentence' ? 'grid' : 'none';
@@ -454,6 +466,89 @@ class BookProcessorUI {
             const filePath = file.path || file.name;
             this.elements.wordBatchDatabasePath.value = filePath;
             this.addLog(`Word batch database file selected: ${filePath}`, 'info');
+        }
+    }
+
+    browseResponseFile() {
+        this.elements.responseFileInput.click();
+    }
+
+    handleResponseFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) {
+            const filePath = file.path || file.name;
+            this.elements.responseFilePath.value = filePath;
+            this.addLog(`Response file selected: ${filePath}`, 'info');
+        }
+    }
+
+    async processResponseFile() {
+        const responseFilePath = this.elements.responseFilePath.value.trim();
+        
+        if (!responseFilePath) {
+            this.addLog('Please select a response file (.jsonl)', 'error');
+            return;
+        }
+        
+        this.addLog('Starting response file processing...', 'info');
+        this.addLog(`File: ${responseFilePath}`, 'info');
+        
+        // Disable button during processing
+        this.elements.processResponseBtn.disabled = true;
+        this.elements.processResponseBtn.textContent = 'Processing...';
+        
+        try {
+            const response = await fetch('http://localhost:3005/api/word-batch/process-response', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    responseFilePath
+                })
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.details || error.error || 'Processing failed');
+            }
+            
+            const result = await response.json();
+            this.addLog(result.message, 'success');
+            
+            if (result.results) {
+                const r = result.results;
+                this.addLog(`📊 Processing Results:`, 'info');
+                this.addLog(`  Total entries: ${r.total_entries}`, 'info');
+                this.addLog(`  Processed: ${r.processed}`, 'info');
+                this.addLog(`  Successful: ${r.successful}`, 'success');
+                this.addLog(`  Failed: ${r.failed}`, r.failed > 0 ? 'error' : 'info');
+                this.addLog(`  Success rate: ${r.success_rate}`, 'info');
+                this.addLog(`✅ SQL file created: ${r.sql_output_file}`, 'success');
+                
+                if (r.failed > 0) {
+                    this.addLog(`❌ Error log: ${r.error_log_file}`, 'info');
+                    
+                    // Show failed words retry file info
+                    if (r.failed_words_retry_file && r.failed_words_count > 0) {
+                        this.addLog(`🔄 Retry file created: ${r.failed_words_retry_file}`, 'info');
+                        this.addLog(`  ➡️ Contains ${r.failed_words_count} failed words for re-batching`, 'info');
+                        this.addLog(`  💡 You can use this file for another batch processing attempt`, 'info');
+                    }
+                }
+                
+                // Enable download button if there were successful results
+                if (r.successful > 0) {
+                    this.elements.downloadBtn.disabled = false;
+                }
+            }
+            
+        } catch (error) {
+            this.addLog(`Response processing failed: ${error.message}`, 'error');
+        } finally {
+            // Re-enable button
+            this.elements.processResponseBtn.disabled = false;
+            this.elements.processResponseBtn.textContent = 'Process Response File';
         }
     }
 
@@ -1276,8 +1371,15 @@ class BookProcessorUI {
                 endpoint = 'http://localhost:3005/api/words/download/sql';
                 filename = 'word_translations_inserts.sql';
             } else if (this.currentMode === 'wordBatch') {
-                endpoint = 'http://localhost:3005/api/word-batch/download/jsonl';
-                filename = 'batch_words.jsonl';
+                // Check if we need to download response processing results or batch JSONL
+                const responseFilePath = this.elements.responseFilePath.value.trim();
+                if (responseFilePath) {
+                    endpoint = 'http://localhost:3005/api/word-batch/download/response-sql';
+                    filename = 'response_words.sql';
+                } else {
+                    endpoint = 'http://localhost:3005/api/word-batch/download/jsonl';
+                    filename = 'batch_words.jsonl';
+                }
             } else if (this.currentMode === 'epub') {
                 endpoint = 'http://localhost:3005/api/epub/download/text';
                 filename = 'extracted_epub_text.txt';
@@ -1309,7 +1411,10 @@ class BookProcessorUI {
             if (this.currentMode === 'sentence') fileType = 'Sentence SQL';
             else if (this.currentMode === 'sentenceBatch') fileType = 'Batch JSONL';
             else if (this.currentMode === 'word') fileType = 'Word SQL';
-            else if (this.currentMode === 'wordBatch') fileType = 'Word Batch JSONL';
+            else if (this.currentMode === 'wordBatch') {
+                const responseFilePath = this.elements.responseFilePath.value.trim();
+                fileType = responseFilePath ? 'Response Processing SQL' : 'Word Batch JSONL';
+            }
             else if (this.currentMode === 'epub') fileType = 'Extracted text';
             
             this.addLog(`${fileType} file downloaded successfully`, 'success');

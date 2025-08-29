@@ -13,11 +13,20 @@ class WordBatchProcessor {
         this.processedCount = 0;
         this.successCount = 0;
         this.skippedCount = 0;
+        
+        // Response processing file paths
+        this.sqlOutputFile = `logs/sql/response_words_${timestamp}.sql`;
+        this.errorLogFile = `logs/errors/response_word_errors_${timestamp}.log`;
+        this.failedWordsFile = `logs/batchWords/failed_words_retry_${timestamp}.jsonl`;
+        this.sqlInsertStatements = [];
+        this.failedWordEntries = [];
     }
 
     async initialize() {
         // Ensure directories exist
         fs.mkdirSync('logs/batchWords', { recursive: true });
+        fs.mkdirSync('logs/sql', { recursive: true });
+        fs.mkdirSync('logs/errors', { recursive: true });
         
         // Initialize output file
         fs.writeFileSync(this.outputFile, '', 'utf8');
@@ -267,6 +276,309 @@ class WordBatchProcessor {
             skipped: this.skippedCount,
             isProcessing: this.isProcessing
         };
+    }
+
+    // Response processing methods
+    generateSchemaSQL() {
+        const schemaSqls = [
+            "PRAGMA foreign_keys = ON;",
+            `
+        CREATE TABLE IF NOT EXISTS words (
+            id INTEGER PRIMARY KEY,
+            word TEXT NOT NULL,
+            base_form TEXT,
+            wordInfo TEXT,
+            UNIQUE(word)
+        );
+        `,
+            "CREATE INDEX IF NOT EXISTS idx_words_word ON words(word);"
+        ];
+        return schemaSqls.join("\n") + "\n\n";
+    }
+
+    escapeSQLString(value) {
+        if (value === null || value === undefined) {
+            return "NULL";
+        }
+        return "'" + String(value).replace(/'/g, "''") + "'";
+    }
+
+    transformExampleText(text) {
+        if (!text) return null;
+        return text.replace(/\|([^|]+)\|/g, '<em>$1</em>');
+    }
+
+    logError(wordQuery, reason, rawOutputData = "") {
+        let errorMessage = `Word: ${wordQuery}\nReason: ${reason}\n`;
+        
+        if (typeof rawOutputData === 'object') {
+            errorMessage += `Parsed Data (or part of it):\n${JSON.stringify(rawOutputData, null, 2)}\n`;
+        } else if (rawOutputData) {
+            errorMessage += `Raw Output:\n${rawOutputData}\n`;
+        }
+        
+        errorMessage += "-".repeat(30) + "\n";
+        
+        fs.appendFileSync(this.errorLogFile, errorMessage, 'utf8');
+        console.log(`Logged error for '${wordQuery}' to ${this.errorLogFile}`);
+    }
+
+    extractOriginalWordFromRequest(requestText) {
+        // Extract word from request text like "en-rus |mauritius|"
+        const match = requestText.match(/\|([^|]+)\|/);
+        return match ? match[1] : null;
+    }
+
+    addFailedWordForRetry(originalWord, originalRequestText) {
+        // Create a new JSONL entry for the failed word that can be sent for re-batching
+        // Extract language pair from original request (e.g., "en-rus |word|")
+        const languagePairMatch = originalRequestText.match(/^([^|]+)\s*\|/);
+        const languagePair = languagePairMatch ? languagePairMatch[1].trim() : 'en-rus';
+        
+        const retryEntry = {
+            request: {
+                contents: [{
+                    role: "user",
+                    parts: [{
+                        text: `${languagePair} |${originalWord}|`
+                    }]
+                }],
+                generationConfig: {
+                    temperature: 0.2
+                }
+            }
+        };
+        
+        this.failedWordEntries.push(JSON.stringify(retryEntry));
+    }
+
+    extractAndGenerateSQLForWord(assistantContentJson, originalQueriedWord, rawResponse) {
+        try {
+            // Validate that we have a properly parsed JSON with expected structure
+            if (!assistantContentJson || typeof assistantContentJson !== 'object') {
+                this.logError(originalQueriedWord, `Invalid or missing JSON content`, rawResponse);
+                return false;
+            }
+
+            // Validate expected JSON structure
+            const wordInfoFromModel = assistantContentJson.word_info;
+            if (!wordInfoFromModel || typeof wordInfoFromModel !== 'object') {
+                this.logError(originalQueriedWord, `Missing or invalid word_info in JSON response`, assistantContentJson);
+                return false;
+            }
+
+            // Check for required fields in word_info
+            if (!wordInfoFromModel.hasOwnProperty('base_form') || 
+                !wordInfoFromModel.hasOwnProperty('definition') || 
+                !wordInfoFromModel.hasOwnProperty('additional_info')) {
+                this.logError(originalQueriedWord, `Missing required fields in word_info (base_form, definition, additional_info)`, assistantContentJson);
+                return false;
+            }
+
+            // Validate translations array
+            if (!assistantContentJson.translations || !Array.isArray(assistantContentJson.translations)) {
+                this.logError(originalQueriedWord, `Missing or invalid translations array in JSON response`, assistantContentJson);
+                return false;
+            }
+            
+            // Extract base_form - handle both string and object formats
+            let baseForm = null;
+            if (wordInfoFromModel.base_form) {
+                if (typeof wordInfoFromModel.base_form === 'string') {
+                    baseForm = wordInfoFromModel.base_form;
+                } else if (typeof wordInfoFromModel.base_form === 'object') {
+                    // If it's an object, try to extract a meaningful string value
+                    const baseFormObj = wordInfoFromModel.base_form;
+                    // Try common keys first, then fall back to first value
+                    baseForm = baseFormObj.nominative || baseFormObj.infinitive || 
+                              baseFormObj.form || Object.values(baseFormObj)[0] || 
+                              JSON.stringify(baseFormObj);
+                }
+            }
+
+            // Parse and process the raw response to add <em> tags to examples
+            let processedResponse;
+            try {
+                const responseData = JSON.parse(rawResponse);
+                
+                // Process examples in translations to add <em> tags
+                if (responseData.translations && Array.isArray(responseData.translations)) {
+                    responseData.translations.forEach(translation => {
+                        if (translation.examples && Array.isArray(translation.examples)) {
+                            translation.examples.forEach(example => {
+                                // Validate that source and target contain pipe markers |word|
+                                if (example.source) {
+                                    if (!example.source.includes('|')) {
+                                        this.logError(originalQueriedWord, `Source text missing pipe markers: ${example.source}`, responseData);
+                                        throw new Error('Source text missing required pipe markers');
+                                    }
+                                    example.source = this.transformExampleText(example.source);
+                                }
+                                if (example.target) {
+                                    if (!example.target.includes('|')) {
+                                        this.logError(originalQueriedWord, `Target text missing pipe markers: ${example.target}`, responseData);
+                                        throw new Error('Target text missing required pipe markers');
+                                    }
+                                    example.target = this.transformExampleText(example.target);
+                                }
+                            });
+                        }
+                    });
+                }
+                
+                processedResponse = JSON.stringify(responseData);
+            } catch (jsonError) {
+                if (jsonError.message.includes('pipe markers')) {
+                    this.logError(originalQueriedWord, `Response validation failed: ${jsonError.message}`, rawResponse);
+                } else {
+                    this.logError(originalQueriedWord, `Raw response is not valid JSON: ${jsonError.message}`, rawResponse);
+                }
+                return false;
+            }
+
+            // Simple INSERT into the single words table
+            this.sqlInsertStatements.push(
+                `INSERT OR IGNORE INTO words (word, base_form, wordInfo) VALUES ` +
+                `(${this.escapeSQLString(originalQueriedWord)}, ${this.escapeSQLString(baseForm)}, ${this.escapeSQLString(processedResponse)});`
+            );
+            
+            return true;
+
+        } catch (error) {
+            this.logError(originalQueriedWord, `Unexpected error during SQL generation: ${error.message}`, assistantContentJson);
+            return false;
+        }
+    }
+
+    parseModelOutputForAssistantContent(rawStreamedOutput) {
+        try {
+            const innerJsonData = JSON.parse(rawStreamedOutput);
+            if (!innerJsonData.word_info) {
+                throw new Error("Parsed JSON missing required 'word_info' key.");
+            }
+            return innerJsonData;
+        } catch (jsonError) {
+            console.log(`Failed to parse direct output as JSON: ${jsonError.message}`);
+            console.log(`Problematic string was:\n${rawStreamedOutput}`);
+            return null;
+        }
+    }
+
+    async processVertexAIResponseFile(responseFilePath) {
+        if (!fs.existsSync(responseFilePath)) {
+            throw new Error(`Response file not found: ${responseFilePath}`);
+        }
+
+        await this.initialize();
+        
+        // Initialize error log
+        fs.writeFileSync(this.errorLogFile, `Response Processing Error Log - Run: ${new Date().toString()}\n${"+".repeat(50)}\n`, 'utf8');
+        
+        // Add schema creation SQL
+        this.sqlInsertStatements.push(this.generateSchemaSQL());
+        
+        console.log(`Processing Vertex AI responses from: ${responseFilePath}`);
+        
+        const fileContent = fs.readFileSync(responseFilePath, 'utf8');
+        const lines = fileContent.split('\n').filter(line => line.trim().length > 0);
+        
+        console.log(`Found ${lines.length} response entries to process`);
+        
+        let processedCount = 0;
+        let successCount = 0;
+        let failedCount = 0;
+        
+        for (const line of lines) {
+            try {
+                const responseEntry = JSON.parse(line);
+                
+                // Extract original word from request
+                const requestText = responseEntry.request?.contents?.[0]?.parts?.[0]?.text;
+                if (!requestText) {
+                    console.log(`Skipping entry - no request text found`);
+                    failedCount++;
+                    continue;
+                }
+                
+                const originalWord = this.extractOriginalWordFromRequest(requestText);
+                if (!originalWord) {
+                    console.log(`Skipping entry - could not extract word from request: ${requestText}`);
+                    failedCount++;
+                    continue;
+                }
+                
+                // Extract response text
+                const responseText = responseEntry.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!responseText) {
+                    this.logError(originalWord, "No response text found in entry", responseEntry);
+                    this.addFailedWordForRetry(originalWord, requestText);
+                    failedCount++;
+                    continue;
+                }
+                
+                // Parse the response using the same logic as wordProcessor
+                const assistantContentJson = this.parseModelOutputForAssistantContent(responseText);
+                
+                if (assistantContentJson) {
+                    if (this.extractAndGenerateSQLForWord(assistantContentJson, originalWord, responseText)) {
+                        successCount++;
+                        console.log(`✅ Successfully processed: ${originalWord}`);
+                    } else {
+                        this.addFailedWordForRetry(originalWord, requestText);
+                        failedCount++;
+                        console.log(`❌ Failed validation for: ${originalWord}`);
+                    }
+                } else {
+                    this.logError(originalWord, "Failed to parse response text as valid JSON", responseText);
+                    this.addFailedWordForRetry(originalWord, requestText);
+                    failedCount++;
+                    console.log(`❌ Failed parsing for: ${originalWord}`);
+                }
+                
+                processedCount++;
+                
+            } catch (error) {
+                console.log(`Error processing line: ${error.message}`);
+                failedCount++;
+            }
+        }
+        
+        // Save SQL results
+        fs.writeFileSync(this.sqlOutputFile, this.sqlInsertStatements.join("\n"), 'utf8');
+        
+        // Save failed words for retry if there are any
+        let failedWordsFile = null;
+        if (this.failedWordEntries.length > 0) {
+            fs.writeFileSync(this.failedWordsFile, this.failedWordEntries.join('\n'), 'utf8');
+            failedWordsFile = this.failedWordsFile;
+            console.log(`\n⚠️ Created retry file with ${this.failedWordEntries.length} failed words: ${failedWordsFile}`);
+        }
+        
+        const results = {
+            total_entries: lines.length,
+            processed: processedCount,
+            successful: successCount,
+            failed: failedCount,
+            success_rate: successCount > 0 ? ((successCount / processedCount) * 100).toFixed(2) + '%' : '0.00%',
+            sql_output_file: this.sqlOutputFile,
+            error_log_file: this.errorLogFile,
+            failed_words_retry_file: failedWordsFile,
+            failed_words_count: this.failedWordEntries.length
+        };
+        
+        console.log('\nVertex AI Response Processing Complete:');
+        console.log(`Total entries: ${results.total_entries}`);
+        console.log(`Processed: ${results.processed}`);
+        console.log(`Successful: ${results.successful}`);
+        console.log(`Failed: ${results.failed}`);
+        console.log(`Success rate: ${results.success_rate}`);
+        console.log(`SQL output: ${results.sql_output_file}`);
+        console.log(`Error log: ${results.error_log_file}`);
+        if (results.failed_words_retry_file) {
+            console.log(`Failed words retry file: ${results.failed_words_retry_file} (${results.failed_words_count} entries)`);
+        }
+        
+        return results;
     }
 }
 
