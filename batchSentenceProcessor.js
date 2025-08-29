@@ -24,7 +24,7 @@ class BatchSentenceProcessor {
         }
     }
 
-    saveLanguageSettings(sourceLanguage, targetLanguage) {
+    saveLanguageSettings(sourceLanguage, targetLanguage, bookAddress = null) {
         try {
             let settings;
             try {
@@ -48,6 +48,9 @@ class BatchSentenceProcessor {
             // Update batch processing language settings
             settings.batchProcessing.sourceLanguage = sourceLanguage;
             settings.batchProcessing.targetLanguage = targetLanguage;
+            if (bookAddress) {
+                settings.batchProcessing.bookAddress = bookAddress;
+            }
 
             // Save updated settings
             fs.writeFileSync('userSettings.json', JSON.stringify(settings, null, 2), 'utf8');
@@ -87,7 +90,7 @@ class BatchSentenceProcessor {
         }
 
         // Save the language settings for future use
-        this.saveLanguageSettings(finalSourceLanguage, finalTargetLanguage);
+        this.saveLanguageSettings(finalSourceLanguage, finalTargetLanguage, filePath);
         const sourceCode = getLanguageCode(finalSourceLanguage);
         const targetCode = getLanguageCode(finalTargetLanguage);
         const languagePair = `${sourceCode}-${targetCode}`;

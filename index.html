@@ -20,6 +20,7 @@
                     <button id="sentenceTab" class="tab-button active">Sentence Processing</button>
                     <button id="sentenceBatchTab" class="tab-button">Sentence Batch</button>
                     <button id="wordTab" class="tab-button">Word Processing</button>
+                    <button id="wordBatchTab" class="tab-button">Word Batch</button>
                     <button id="epubTab" class="tab-button">EPUB Processor</button>
                 </div>
             </section>
@@ -47,6 +48,13 @@
                     <label>Processing Mode:</label>
                     <span style="color: #2d3748; font-weight: 500;">Word Extraction & Translation</span>
                     <p style="color: #4a5568; font-size: 0.9em; margin: 5px 0 0 0;">Extract unique words, check database, and translate new words concurrently</p>
+                </div>
+
+                <!-- Word Batch Mode Info -->
+                <div class="input-group" id="wordBatchModeInfo" style="display: none;">
+                    <label>Processing Mode:</label>
+                    <span style="color: #2d3748; font-weight: 500;">Word Batch JSONL Generation</span>
+                    <p style="color: #4a5568; font-size: 0.9em; margin: 5px 0 0 0;">Extract unique words, check database, and generate JSONL for missing words only</p>
                 </div>
 
                 <!-- EPUB Processing Mode Info -->
@@ -206,6 +214,35 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Word Batch Configuration -->
+                <div class="input-group" id="wordBatchConfigGroup" style="display: none;">
+                    <h3 style="color: #4a5568; margin-bottom: 15px;">Word Batch Configuration</h3>
+                    <div style="background: #f7fafc; padding: 15px; border-radius: 8px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                            <div>
+                                <label for="wordBatchSourceLanguage">Source Language:</label>
+                                <select id="wordBatchSourceLanguage">
+                                    <option value="German">German</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="wordBatchTargetLanguage">Target Language:</label>
+                                <select id="wordBatchTargetLanguage">
+                                    <option value="English">English</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="wordBatchDatabasePath">Database Path (optional):</label>
+                            <div class="file-input-group">
+                                <input type="text" id="wordBatchDatabasePath" placeholder="Leave empty to process all words">
+                                <input type="file" id="wordBatchDatabaseInput" accept=".db,.sqlite,.sqlite3" style="display: none;">
+                                <button type="button" id="browseWordBatchDatabaseBtn" class="btn-browse">Browse...</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 
 
                 <div class="button-group">
@@ -312,6 +349,30 @@
                     <div class="result-card">
                         <h3>Processing Time</h3>
                         <span id="wordProcessingTime" class="result-number">0s</span>
+                    </div>
+                </div>
+
+                <!-- Word Batch Processing Results -->
+                <div class="results-grid" id="wordBatchResults" style="display: none;">
+                    <div class="result-card">
+                        <h3>Total Words</h3>
+                        <span id="wordBatchTotalWords" class="result-number">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>New Words</h3>
+                        <span id="wordBatchNewWords" class="result-number">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Processed</h3>
+                        <span id="wordBatchProcessedWords" class="result-number success">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Skipped (in DB)</h3>
+                        <span id="wordBatchSkippedWords" class="result-number">0</span>
+                    </div>
+                    <div class="result-card">
+                        <h3>Processing Time</h3>
+                        <span id="wordBatchProcessingTime" class="result-number">0s</span>
                     </div>
                 </div>
 

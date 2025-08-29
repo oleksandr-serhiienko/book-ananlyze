@@ -10,18 +10,18 @@
     "databasePath": ""
   },
   "wordProcessing": {
-    "projectId": "773128740280",
+    "projectId": "188935312243",
     "location": "europe-southwest1",
-    "modelEndpoint": "projects/773128740280/locations/europe-southwest1/endpoints/7132439570406178816",
+    "modelEndpoint": "projects/188935312243/locations/europe-southwest1/endpoints/3012068123827240960",
     "rollbackModels": [
       "projects/773128740280/locations/europe-southwest1/endpoints/1034002724993105920",
       "projects/773128740280/locations/europe-southwest1/endpoints/4488263639186276352",
       "projects/773128740280/locations/europe-southwest1/endpoints/4694303322138476544"
     ],
     "sourceLanguage": "German",
-    "targetLanguage": "Russian",
-    "textFilePath": "C:\\Dev\\Application\\book-ananlyze\\logs\\txt\\extracted_epub_2025-08-16T10-53-27-781Z.txt",
-    "databasePath": ""
+    "targetLanguage": "English",
+    "textFilePath": "C:\\Dev\\Application\\book-ananlyze\\logs\\txt\\extracted_epub_2025-08-28T17-21-02-356Z.txt",
+    "databasePath": "MudadibFullGemini.db"
   },
   "epubProcessing": {
     "projectId": "",
@@ -35,5 +35,10 @@
   "batchProcessing": {
     "sourceLanguage": "English",
     "targetLanguage": "Russian"
+  },
+  "wordBatchProcessing": {
+    "sourceLanguage": "English",
+    "targetLanguage": "Russian",
+    "databasePath": null
   }
 }

@@ -146,6 +146,18 @@ let sentenceBatchState = {
     status: 'idle'
 };
 
+// Global state for word batch processing
+let wordBatchState = {
+    isRunning: false,
+    logs: [],
+    totalWords: 0,
+    newWords: 0,
+    processedWords: 0,
+    skippedWords: 0,
+    status: 'idle',
+    currentWordBatchProcessor: null
+};
+
 // Global state for EPUB processing
 let epubProcessingState = {
     isRunning: false,
@@ -248,6 +260,26 @@ function addBatchLog(message, type = 'info', error = null) {
     
     sentenceBatchState.logs.push(logEntry);
     console.log(`BATCH ${type.toUpperCase()}: ${logEntry}`);
+}
+
+function addWordBatchLog(message, type = 'info', error = null) {
+    const timestamp = new Date().toISOString();
+    let logEntry = `[${timestamp}] ${message}`;
+    
+    // Add detailed error information if provided
+    if (error && type === 'error') {
+        logEntry += `\n  Error Details: ${error.message}`;
+        if (error.code) logEntry += `\n  Error Code: ${error.code}`;
+        if (error.errno) logEntry += `\n  Error Number: ${error.errno}`;
+        if (error.path) logEntry += `\n  File Path: ${error.path}`;
+        if (error.stack) {
+            const stackLines = error.stack.split('\n').slice(1, 4); // First 3 stack frames
+            logEntry += `\n  Stack Trace:\n    ${stackLines.join('\n    ')}`;
+        }
+    }
+    
+    wordBatchState.logs.push(logEntry);
+    console.log(`WORD BATCH ${type.toUpperCase()}: ${logEntry}`);
 }
 
 function resetBatchProcessingState() {
@@ -872,6 +904,151 @@ app.get('/api/sentence-batch/download/jsonl', (req, res) => {
     } catch (error) {
         addBatchLog('Error in batch JSONL download', 'error', error);
         res.status(500).json({ error: 'Failed to generate batch JSONL download' });
+    }
+});
+
+// Word batch processing endpoints
+app.post('/api/word-batch/start', async (req, res) => {
+    try {
+        const { filePath, sourceLanguage, targetLanguage, databasePath } = req.body;
+
+        if (!filePath) {
+            return res.status(400).json({
+                error: 'Missing required parameter: filePath'
+            });
+        }
+
+        if (wordBatchState.isRunning) {
+            return res.status(400).json({
+                error: 'Word batch processing is already running. Please stop the current process before starting a new one.'
+            });
+        }
+
+        // Reset state
+        wordBatchState = {
+            isRunning: false,
+            logs: [],
+            totalWords: 0,
+            newWords: 0,
+            processedWords: 0,
+            skippedWords: 0,
+            status: 'idle',
+            currentWordBatchProcessor: null
+        };
+        
+        wordBatchState.isRunning = true;
+        wordBatchState.status = 'starting';
+
+        addWordBatchLog('Starting word batch processing...');
+        addWordBatchLog(`File: ${filePath}`);
+        addWordBatchLog(`Languages: ${sourceLanguage} -> ${targetLanguage}`);
+        if (databasePath) {
+            addWordBatchLog(`Database: ${databasePath}`);
+        }
+
+        // Import and start word batch processor
+        const WordBatchProcessor = (await import('./wordBatchProcessor.js')).default;
+        const wordBatchProcessor = new WordBatchProcessor();
+        wordBatchState.currentWordBatchProcessor = wordBatchProcessor;
+
+        // Start processing asynchronously
+        (async () => {
+            try {
+                wordBatchState.status = 'processing';
+                
+                const stats = await wordBatchProcessor.processBatchFile(filePath, sourceLanguage, targetLanguage, databasePath);
+                
+                // Update final stats
+                wordBatchState.totalWords = stats.total_words;
+                wordBatchState.newWords = stats.new_words;
+                wordBatchState.processedWords = stats.processed;
+                wordBatchState.skippedWords = stats.skipped;
+                wordBatchState.status = 'completed';
+                wordBatchState.isRunning = false;
+
+                addWordBatchLog(`Word batch processing completed: ${stats.processed}/${stats.new_words} processed, ${stats.skipped} skipped`);
+                
+            } catch (error) {
+                addWordBatchLog('Word batch processing failed', 'error', error);
+                wordBatchState.status = 'error';
+                wordBatchState.isRunning = false;
+            }
+        })();
+
+        res.json({
+            message: 'Word batch processing started successfully'
+        });
+
+    } catch (error) {
+        addWordBatchLog('Error starting word batch processing', 'error', error);
+        wordBatchState.isRunning = false;
+        wordBatchState.status = 'error';
+        res.status(500).json({
+            error: 'Failed to start word batch processing',
+            details: error.message
+        });
+    }
+});
+
+app.get('/api/word-batch/status', (req, res) => {
+    res.json({
+        isRunning: wordBatchState.isRunning,
+        status: wordBatchState.status,
+        totalWords: wordBatchState.totalWords,
+        newWords: wordBatchState.newWords,
+        processedWords: wordBatchState.processedWords,
+        skippedWords: wordBatchState.skippedWords,
+        logs: wordBatchState.logs.slice(-50) // Last 50 log entries
+    });
+});
+
+app.post('/api/word-batch/stop', (req, res) => {
+    if (wordBatchState.currentWordBatchProcessor) {
+        wordBatchState.currentWordBatchProcessor.stop();
+        wordBatchState.currentWordBatchProcessor = null;
+    }
+    
+    wordBatchState.isRunning = false;
+    wordBatchState.status = 'stopped';
+    addWordBatchLog('Word batch processing stopped by user request');
+    
+    res.json({ message: 'Word batch processing stop requested' });
+});
+
+// Download word batch processing results as JSONL
+app.get('/api/word-batch/download/jsonl', (req, res) => {
+    try {
+        // Look for the most recent word batch JSONL file
+        const batchDir = 'logs/batchWords';
+        if (!fs.existsSync(batchDir)) {
+            return res.status(404).json({ error: 'No word batch processing results found' });
+        }
+
+        const files = fs.readdirSync(batchDir).filter(file => file.endsWith('.jsonl'));
+        
+        if (files.length === 0) {
+            return res.status(404).json({ error: 'No JSONL files found' });
+        }
+        
+        // Get the most recent file
+        const mostRecentFile = files.sort((a, b) => {
+            const statA = fs.statSync(path.join(batchDir, a));
+            const statB = fs.statSync(path.join(batchDir, b));
+            return statB.mtime - statA.mtime;
+        })[0];
+        
+        const filePath = path.join(batchDir, mostRecentFile);
+        const jsonlContent = fs.readFileSync(filePath, 'utf8');
+        
+        res.setHeader('Content-Type', 'application/x-jsonlines');
+        res.setHeader('Content-Disposition', 'attachment; filename="batch_words.jsonl"');
+        res.send(jsonlContent);
+        
+        addWordBatchLog(`JSONL file downloaded: ${mostRecentFile}`);
+        
+    } catch (error) {
+        addWordBatchLog('Error in word batch JSONL download', 'error', error);
+        res.status(500).json({ error: 'Failed to generate word batch JSONL download' });
     }
 });
 
@@ -1626,7 +1803,7 @@ async function processEPUB(filePath) {
 app.get('/api/last-settings/:tab', (req, res) => {
     try {
         const { tab } = req.params;
-        const validTabs = ['sentenceProcessing', 'batchProcessing', 'wordProcessing', 'epubProcessing'];
+        const validTabs = ['sentenceProcessing', 'batchProcessing', 'wordProcessing', 'wordBatchProcessing', 'epubProcessing'];
         
         if (!validTabs.includes(tab)) {
             return res.status(400).json({ error: 'Invalid tab. Must be one of: sentenceProcessing, wordProcessing, epubProcessing' });
